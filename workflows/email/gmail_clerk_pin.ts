@@ -8,16 +8,82 @@
  * Usage:
  *   gmail_clerk_pin              # Returns just the PIN
  *   gmail_clerk_pin --json       # Returns JSON with metadata
- *   gmail_clerk_pin --wait       # Poll until new PIN arrives
  *
- * Implementation: Wraps gmail CLI for specific use case
+ * Email format:
+ *   Subject: "[Development] 624351 is your verification code"
+ *   Future:  "[Production] 624351 is your verification code"  (when app name changes to captain32)
  */
 
-// TODO: Implement
-// 1. Call: gmail search from:clerk.com subject:code -n 1 --json
-// 2. Parse email body for PIN pattern (likely 6 digits)
-// 3. Return PIN (optionally with timestamp/metadata)
+import { execSync } from "child_process";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
-console.log("STUB: gmail_clerk_pin not yet implemented");
-console.log("Will search for latest Clerk verification code");
-process.exit(0);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const GMAIL_BIN = join(__dirname, "../../bin/gmail");
+
+const args = process.argv.slice(2);
+const jsonOutput = args.includes("--json");
+
+try {
+  // Get last 50 emails
+  const listOutput = execSync(`${GMAIL_BIN} list -n 50 --json`, { encoding: "utf-8" });
+  const emails = JSON.parse(listOutput);
+
+  // Search for verification code email
+  for (const email of emails) {
+    const emailData = execSync(`${GMAIL_BIN} read "${email.id}" --json`, { encoding: "utf-8" });
+    const fullEmail = JSON.parse(emailData);
+
+    // Find subject header
+    const subjectHeader = fullEmail.payload.headers.find((h: any) => h.name === "Subject");
+    if (!subjectHeader) continue;
+
+    const subject = subjectHeader.value;
+
+    // Check if this is a verification code email
+    if (subject.includes("verification code")) {
+      // Extract 6-digit PIN from subject
+      // Format: "[Development] 624351 is your verification code"
+      const pinMatch = subject.match(/(\d{6})/);
+
+      if (pinMatch) {
+        const pin = pinMatch[1];
+
+        if (jsonOutput) {
+          console.log(JSON.stringify({
+            pin,
+            subject,
+            messageId: email.id,
+            timestamp: new Date().toISOString()
+          }, null, 2));
+        } else {
+          console.log(pin);
+        }
+        process.exit(0);
+      }
+    }
+  }
+
+  // No verification code found
+  if (jsonOutput) {
+    console.log(JSON.stringify({
+      error: "No verification code found",
+      message: "No Clerk verification email found in last 50 messages"
+    }, null, 2));
+  } else {
+    console.error("Error: No verification code found in last 50 emails");
+  }
+  process.exit(1);
+
+} catch (error) {
+  if (jsonOutput) {
+    console.log(JSON.stringify({
+      error: "Failed to retrieve PIN",
+      message: error instanceof Error ? error.message : String(error)
+    }, null, 2));
+  } else {
+    console.error("Error:", error instanceof Error ? error.message : String(error));
+  }
+  process.exit(1);
+}
