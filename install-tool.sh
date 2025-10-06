@@ -53,7 +53,12 @@ fi
 
 echo ""
 print_color $GREEN "Available tools:"
-ls -1 "$BIN_DIR" | sed 's/^/  - /'
+echo ""
+print_color $YELLOW "  General CLIs (Tier 1):"
+ls -1 "$BIN_DIR" | grep -v "_" | sed 's/^/    /'
+echo ""
+print_color $YELLOW "  Workflow Tools (Tier 2):"
+ls -1 "$BIN_DIR" | grep "_" | sed 's/^/    /'
 
 echo ""
 print_color $YELLOW "To use tools in current shell:"

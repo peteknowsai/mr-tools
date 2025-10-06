@@ -1,0 +1,2 @@
+#!/usr/bin/env bun
+import "../workflows/auth/clerk_verify_pin.ts";
