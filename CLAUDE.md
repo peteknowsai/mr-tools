@@ -559,6 +559,517 @@ When teams report MCP issues:
 - **Slack MCP** - Team notifications
 - **Linear MCP** - Issue tracking integration
 
+## Checkpoint System & Rewind Tool
+
+### What is the Checkpoint System?
+
+The checkpoint system allows multi-step agents (like Captain's Advisor) to **save conversation state** at critical points during execution. This enables **temporal inspection** - querying an agent at any specific point in its conversation history.
+
+**Key concept**: In Claude Agent SDK, sessions have many sequential messages. Checkpoints save message IDs, letting you use `resumeSessionAt` to "rewind" the conversation to that exact point.
+
+### The Rewind Tool
+
+**`rewind`** - Time machine for Claude Code sessions (globally installed CLI)
+
+**Purpose**: Query agents at specific checkpoints to verify outputs, debug workflows, or understand agent evolution.
+
+**Usage**:
+```bash
+# List all checkpoints for current session
+rewind list
+
+# Get auto-summary of a checkpoint
+rewind day2 memory
+
+# Query at specific checkpoint (point-in-time mode)
+rewind day2 memory "what did you learn?"
+
+# Query with full context (agent sees future messages)
+rewind day2 memory "why did you choose this?" --full
+
+# Query all checkpoints with same question
+rewind all "what composition did you generate?"
+```
+
+**Session inference**:
+- Looks for `.agent-checkpoints.json` in current directory
+- Uses most recent session by default
+- Override with: `rewind -s SESSION_ID ...`
+
+### Two Query Modes
+
+**1. Point-in-Time (default)**:
+- Uses `resumeSessionAt: messageId`
+- Agent only sees conversation up to checkpoint
+- Perfect for: Verifying "what did you generate at this step?"
+- Prevents future context from contaminating answers
+
+**2. Full Context (`--full` flag)**:
+- Uses `resume: sessionId` without limit
+- Agent sees entire session history
+- Perfect for: Understanding "why did you make this choice?"
+- Provides hindsight for reasoning questions
+
+### For Projects: Saving Checkpoints
+
+Projects using multi-step agents should save checkpoints using the `@mr-tools/checkpoint` helper library:
+
+**Location**: `/Users/pete/Projects/mr-tools/lib/checkpoint.ts`
+
+**Usage in agent workflows**:
+```typescript
+import { saveCheckpoint } from '@mr-tools/checkpoint';
+
+// After agent generates response in a step
+for await (const message of response) {
+  if (message.type === 'assistant' && message.message?.id) {
+    saveCheckpoint({
+      sessionId: 'abc-123',
+      userId: 'user_001',
+      dayNumber: 2,
+      step: 'composition',        // Human-readable step ID
+      stepName: 'Daily Composition Generation',
+      messageId: message.message.id
+    });
+  }
+}
+```
+
+**Checkpoint file format** (`.agent-checkpoints.json`):
+```json
+{
+  "SESSION_ID": {
+    "sessionId": "abc-123",
+    "userId": "user_001",
+    "createdAt": "2025-10-06T08:27:49.431Z",
+    "checkpoints": [
+      {
+        "dayNumber": 1,
+        "step": "composition",
+        "stepName": "Daily Composition Generation",
+        "messageId": "msg_014WMSUXGdWkAexSSKSztcVf",
+        "timestamp": "2025-10-06T08:27:49.433Z"
+      }
+    ]
+  }
+}
+```
+
+### Use Cases
+
+**Agents Team (captain32-agents)**:
+- Verify composition generation at each day
+- Debug memory updates and prompt evolution
+- Test planning outputs for next day
+- Automated testing of multi-day workflows
+
+**Any Claude Agent SDK Project**:
+- Multi-day autonomous agents
+- Chain-of-thought reasoning systems
+- Research agents with sequential analysis
+- Code generation with iterative refinement
+- Testing frameworks with checkpoint verification
+
+### Technical Details
+
+**Binary location**: `/Users/pete/Projects/mr-tools/bin/rewind` (59MB)
+**Global installation**:
+- Primary: Symlinked to `/Users/pete/.local/bin/rewind` (works in all Claude Code sessions)
+- Fallback: Available via `install-tool.sh rewind` (adds to PATH in shell configs)
+
+**Dependencies**:
+- `@anthropic-ai/claude-agent-sdk` - For query() and session management
+- Claude Code executable at `/Users/pete/.claude/local/claude`
+
+**PATH Notes**:
+- `.local/bin` is in PATH for Claude Code sessions (preferred method)
+- `mr-tools/bin` requires sourcing `~/.zshrc` (works in terminal sessions)
+- If `rewind` command not found, use full path: `/Users/pete/Projects/mr-tools/bin/rewind`
+
+**Step name mapping**: Supports both numeric (1,2,3,4) and string identifiers:
+- 1 / "composition" → Composition step
+- 2 / "memory" → Memory update step
+- 3 / "system" → System prompt evolution
+- 4 / "planning" → Planning step
+
+### Message to Agent Team
+
+**🎉 Your time machine is ready!** The `rewind` tool is now globally available and fully tested with your session `05772bad-fcb3-44aa-86ad-1a97118fccc6`.
+
+#### What This Tool Does For You
+
+The `rewind` tool solves a critical problem you've had: **How do you verify what the agent generated at a specific step without future context contaminating the answer?**
+
+Before `rewind`:
+- Resuming a session loads ALL messages → Agent sees everything that happened after
+- Can't isolate "what did you generate on Day 2, Step 1?" without Day 3 influencing the answer
+- Manual session interaction required for verification
+
+After `rewind`:
+- Query agent at exact checkpoint → Only sees messages up to that point
+- Perfect isolation for verification: "Show me the Day 2 composition you generated"
+- Automated testing possible: Run queries against all checkpoints programmatically
+
+#### How Your Checkpoints Work
+
+**Your current setup (already working)**:
+- You save checkpoints with numeric steps: 1, 2, 3, 4
+- File location: `.agent-checkpoints.json` in captain32-agents directory
+- Each checkpoint saves: day number, step number, step name, message ID
+
+**What `rewind` adds**:
+- Converts numeric steps to readable names automatically:
+  - Step 1 → "composition"
+  - Step 2 → "memory"
+  - Step 3 → "system"
+  - Step 4 → "planning"
+- Works from any directory with `.agent-checkpoints.json`
+- Auto-detects most recent session (no need to type session ID)
+
+#### The Two Query Modes (Important!)
+
+**1. Point-in-Time Mode (default)** - Use this for verification:
+```bash
+rewind day2 composition "what composition did you generate?"
+```
+- Agent ONLY sees messages up to that checkpoint
+- Perfect for: "Show me what you generated at this step"
+- Use when: Testing outputs, verifying step results, debugging specific steps
+
+**2. Full Context Mode (`--full`)** - Use this for reasoning:
+```bash
+rewind day2 composition "why did you choose this approach?" --full
+```
+- Agent sees ENTIRE session history (including future messages)
+- Perfect for: "Why did you make this decision?" (needs hindsight)
+- Use when: Understanding evolution, analyzing choices, debugging logic
+
+**Key difference**: Point-in-time = "What happened?" vs Full context = "Why did it happen?"
+
+#### Practical Usage Patterns
+
+**Pattern 1: Daily Verification**
+```bash
+# After Day 2 completes, verify each step
+rewind day2 composition    # Auto-summary of what was generated
+rewind day2 memory        # Auto-summary of memory updates
+rewind day2 system        # Auto-summary of system changes
+rewind day2 planning      # Auto-summary of planning output
+```
+
+**Pattern 2: Debugging a Specific Step**
+```bash
+# Day 3 composition looks wrong? Check what happened:
+rewind day3 composition "what composition did you generate?"
+rewind day3 composition "what data did you use?" --full
+rewind day2 planning "what did you plan for day 3?"  # Check previous planning
+```
+
+**Pattern 3: Understanding Evolution**
+```bash
+# How did the agent evolve over time?
+rewind all "what was your system prompt?"
+rewind all "what composition did you generate?"
+rewind all "what did you learn?"
+```
+
+**Pattern 4: Automated Testing** (Future Enhancement)
+```bash
+# Script to verify all compositions
+for day in 1 2 3; do
+  rewind day${day} composition "list all card types you generated" > day${day}_cards.txt
+done
+```
+
+#### Your Current Workflow (No Changes Needed!)
+
+**Keep doing exactly what you're doing**:
+```typescript
+// In your multi-step workflow
+for await (const message of response) {
+  if (message.type === 'assistant' && message.message?.id) {
+    saveCheckpoint({
+      sessionId,
+      userId,
+      dayNumber,
+      step: stepNumber,  // 1, 2, 3, or 4 - rewind handles conversion
+      stepName,
+      messageId: message.message.id
+    });
+  }
+}
+```
+
+**The `rewind` tool automatically**:
+- Finds your `.agent-checkpoints.json` file
+- Detects the most recent session
+- Converts numeric steps to readable names
+- Provides clean query interface
+
+#### Troubleshooting
+
+**"No checkpoints found"** → Make sure you're in a directory with `.agent-checkpoints.json`
+```bash
+cd /Users/pete/Projects/captain32-agents  # Your checkpoint file is here
+rewind list
+```
+
+**"No checkpoint found for Day X, step Y"** → Check available checkpoints first:
+```bash
+rewind list  # See all saved checkpoints
+```
+
+**"Claude Code process exited with code 1"** → Session might be corrupted or message ID invalid. This is rare but can happen if session data is missing.
+
+**Want to query a different session?** → Use `-s` flag:
+```bash
+rewind -s 7bdaf411-96b2-4933-95fd-7a33933c9b88 list
+```
+
+#### Testing It Right Now
+
+Your session `05772bad-fcb3-44aa-86ad-1a97118fccc6` has 4 days of checkpoints. Try these:
+
+```bash
+cd /Users/pete/Projects/captain32-agents
+
+# See everything
+rewind list
+
+# Check Day 1 composition (point-in-time - what was generated)
+rewind day1 composition
+
+# Check Day 1 composition (full context - understand why)
+rewind day1 composition "why did you generate this composition?" --full
+
+# Compare compositions across days
+rewind all "what composition did you generate?"
+```
+
+#### Integration Ideas
+
+**For Testing Workflows**:
+- Create test script that queries all checkpoints and validates outputs
+- Compare composition structures across days
+- Verify memory persistence between steps
+
+**For Debugging**:
+- When composition looks wrong, rewind to that step and query with point-in-time
+- Check previous planning step to see what was intended
+- Use full-context mode to understand reasoning
+
+**For Analysis**:
+- Track how agent's approach evolves over days
+- Understand decision-making by comparing point-in-time vs full-context answers
+- Build reports from checkpoint data
+
+#### Summary
+
+**What you need to know**:
+1. Tool is installed globally as `rewind` command
+2. Works with your existing checkpoint files (no changes needed)
+3. Use point-in-time mode (default) for verification
+4. Use full-context mode (`--full`) for reasoning
+5. Session auto-detection means less typing
+
+**What you get**:
+- Temporal inspection of agent state at any checkpoint
+- Isolated verification without future contamination
+- Automated testing capabilities
+- Better debugging and analysis tools
+
+**Next action**: Try `rewind list` in your captain32-agents directory and explore your checkpoints!
+
+## Jump System - Universal Auto-Labeled Navigation
+
+### What is Jump?
+
+`jump` is an automatic checkpoint system that captures **every assistant response** with an **AI-generated label**. Unlike `rewind` which requires manual checkpoint saving, `jump` works automatically via hooks.
+
+**Key difference**:
+- **`rewind`** - Domain-specific, manual checkpoints (e.g., "day2 memory", "day3 composition")
+- **`jump`** - Universal, auto-captured with AI labels (e.g., "Fixed JWT validation bug")
+
+Both tools use the **same registry** (`.agent-checkpoints.json`) and work together seamlessly.
+
+### How It Works
+
+1. **Hook triggers** - After every Claude response (Stop hook)
+2. **AI generates label** - Sonnet 4.5 reads last 5 messages, creates 5-10 word label
+3. **Saves to registry** - Uses same `saveCheckpoint()` as `rewind`
+4. **Navigate anytime** - `jump "label"` to time travel
+
+### Installation
+
+**Already installed if you set up rewind!** The unified checkpoint system means:
+- ✅ `checkpoint-auto-capture` - Binary at `~/.local/bin`
+- ✅ `jump` - Binary at `~/.local/bin`
+- ✅ Hook script - `~/.claude/hooks/auto-jump.sh`
+
+**To enable auto-capture**, add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/auto-jump.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Usage
+
+```bash
+# List all auto-captured jumps
+jump list
+
+# Search jumps
+jump search "auth"
+jump search "bug fix"
+
+# Jump to a labeled point (partial match)
+jump "Fixed JWT"                         # Uses default question (point-in-time)
+jump "Fixed JWT" "how did you fix it?"   # Custom question (point-in-time)
+jump "Fixed JWT" "why this approach?" --full  # Full context mode
+jump auto_1728210000                     # By jump ID
+
+# Works alongside rewind
+rewind day2 memory                       # Explicit checkpoint
+jump "Generated 7 cards"                 # Auto-captured jump
+```
+
+### Query Modes
+
+**Point-in-Time (default)**:
+- Agent only sees conversation up to the checkpoint
+- Uses `resumeSessionAt` to limit context
+- Perfect for: "What did you generate?" or "What happened at this step?"
+
+**Full Context (`--full` flag)**:
+- Agent sees entire session including future messages
+- No `resumeSessionAt` limit (sees all history)
+- Perfect for: "Why did you choose this approach?" or "What happened after this?"
+
+**Example comparison**:
+```bash
+# Point-in-time: What was done at this moment?
+jump "setup complete" "what did you build?"
+
+# Full context: Understanding with hindsight
+jump "setup complete" "why did you build it this way?" --full
+```
+
+### Registry Format (Unified with Rewind)
+
+```json
+{
+  "SESSION_ID": {
+    "sessionId": "abc-123",
+    "userId": "test_user",
+    "createdAt": "2025-10-06T10:00:00Z",
+    "checkpoints": [
+      // Manual checkpoint (rewind)
+      {
+        "dayNumber": 1,
+        "step": "composition",
+        "stepName": "Daily Composition Generation",
+        "messageId": "msg_001",
+        "timestamp": "2025-10-06T10:00:00Z"
+      },
+      // Auto-captured jump
+      {
+        "dayNumber": 0,
+        "step": "auto_1728210000",
+        "stepName": "Fixed JWT validation bug in auth middleware",
+        "messageId": "msg_002",
+        "timestamp": "2025-10-06T10:15:00Z",
+        "auto": true
+      }
+    ]
+  }
+}
+```
+
+### Use Cases
+
+**For any project** (not just Captain32):
+- Debug sessions: "Jump back to when I fixed that bug"
+- Review work: "What did I accomplish today?"
+- Share context: "Here's where I added the auth feature"
+- Learn patterns: "How did I solve similar problems?"
+
+**For Captain32 agents** (with both systems):
+- Explicit checkpoints: `rewind day2 memory`
+- Auto jumps: `jump "Generated composition for Sea Breeze"`
+- Best of both worlds!
+
+### Technical Details
+
+**Hook:** `~/.claude/hooks/auto-jump.sh`
+- Runs after every assistant response (Stop hook)
+- Extracts session ID and message ID from transcript
+- Calls `checkpoint-auto-capture` in background (non-blocking)
+
+**AI Labeling:**
+- Model: Sonnet 4.5
+- Context: Last 5 messages (~1500 tokens)
+- Output: 5-10 word label (50 tokens)
+- Cost: ~$0.01 per label
+- Runs in background, doesn't block Claude
+
+**Library:** `lib/checkpoint.ts`
+- `saveAutoCheckpoint()` - Generates AI label, saves checkpoint
+- `findCheckpointByLabel()` - Search by partial match
+- `getAutoCheckpoints()` - Filter auto-captured only
+- Shared with `rewind` tool
+
+### Benefits
+
+✅ **Zero configuration** - Works automatically once hook is enabled
+✅ **AI-powered labels** - Meaningful descriptions, not "message 42"
+✅ **Universal** - Works in any project, any session
+✅ **Searchable** - Find by label or keyword
+✅ **Two query modes** - Point-in-time (isolated) or full context (with hindsight)
+✅ **Compatible** - Works alongside `rewind`
+✅ **Same registry** - One `.agent-checkpoints.json` for both tools
+
+### Example Workflow
+
+**Captain32 Agents Team:**
+```bash
+# Agent runs, saves explicit checkpoints
+# Hook auto-captures with AI labels too
+
+# Use rewind for structured workflow
+rewind day3 composition "what composition did you generate?"
+
+# Use jump for general navigation
+jump list
+jump "Generated composition" "show me the cards"
+```
+
+**Other Teams (App, API):**
+```bash
+# Hook auto-captures everything
+jump list
+# Output:
+# auto_1728210000: Fixed authentication bug in JWT validation
+# auto_1728210900: Added comprehensive auth tests
+# auto_1728211800: Refactored database query performance
+
+# Navigate by description
+jump "auth bug" "show me the fix"
+jump "database" "what did you optimize?"
+```
+
 ## Notes
 
 - **Package manager**: This repo doesn't need one (just config/docs)

@@ -51,6 +51,24 @@ else
     export PATH="$BIN_DIR:$PATH"
 fi
 
+# Create symlinks in .local/bin for Claude Code session compatibility
+LOCAL_BIN="$HOME/.local/bin"
+if [ ! -d "$LOCAL_BIN" ]; then
+    mkdir -p "$LOCAL_BIN"
+    print_color $GREEN "✓ Created $LOCAL_BIN"
+fi
+
+# Symlink tool if provided as argument
+if [ -n "$1" ]; then
+    TOOL_NAME="$1"
+    if [ -f "$BIN_DIR/$TOOL_NAME" ]; then
+        ln -sf "$BIN_DIR/$TOOL_NAME" "$LOCAL_BIN/$TOOL_NAME"
+        print_color $GREEN "✓ Symlinked $TOOL_NAME to $LOCAL_BIN (works in Claude Code sessions)"
+    else
+        print_color $YELLOW "⚠ Tool '$TOOL_NAME' not found in $BIN_DIR"
+    fi
+fi
+
 echo ""
 print_color $GREEN "Available tools:"
 echo ""
