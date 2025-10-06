@@ -1,0 +1,2 @@
+#!/usr/bin/env bun
+import "../workflows/content/replicate_generate_card_art.ts";
