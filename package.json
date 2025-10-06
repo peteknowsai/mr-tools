@@ -1,0 +1,21 @@
+{
+  "name": "mr-tools",
+  "version": "1.0.0",
+  "description": "Centralized tooling and infrastructure for Captain32",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'No build needed - using runtime scripts'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "googleapis": "^140.0.0",
+    "openai": "^4.67.3",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "bun-types": "^1.1.30"
+  },
+  "author": "Pete",
+  "license": "MIT"
+}

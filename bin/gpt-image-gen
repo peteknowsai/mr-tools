@@ -1,0 +1,2 @@
+#!/usr/bin/env bun
+import "../tools/gpt-image-gen/src/cli.ts";

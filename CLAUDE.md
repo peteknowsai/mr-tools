@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with MCP server installa
 
 ## Repository Context
 
-**mr-tool** (formerly mr-mcp) is Pete's tooling and infrastructure hub within the Captain32 workspace (`/Users/pete/Projects/`). This repo manages all development tools including:
+**mr-tools** (formerly mr-mcp) is Pete's tooling and infrastructure hub within the Captain32 workspace (`/Users/pete/Projects/`). This repo manages all development tools including:
 - **MCP servers** - Model Context Protocol servers (primary focus)
 - **CLI tools** - Command-line utilities and developer tools
 - **System-wide tooling** - Available to all Claude Code instances (Pete + all teams)
@@ -19,7 +19,7 @@ This file provides guidance to Claude Code when working with MCP server installa
 - **App Team** - React Native/Expo mobile app (`captain32-mobile`)
 - **API Team** - Cloudflare Workers backend (`captain32-api`)
 - **Agents Team** - AI agents service (`captain32-agents`)
-- **Mr. Tool (Me)** - Tooling & infrastructure specialist (`mr-tool`)
+- **Mr. Tools (Me)** - Tooling & infrastructure specialist (`mr-tools`)
 
 **My Role on the Captain32 Team:**
 
@@ -71,18 +71,179 @@ I'm the **tooling and infrastructure specialist** supporting Pete and all three 
 **System-wide (User scope)**:
 - Config location: `~/.claude.json` under `mcpServers`
 - Available to ALL Claude Code instances
-- Use for: Common tools Pete needs everywhere (Chrome, filesystem, etc.)
+- Use for: Common tools Pete needs everywhere
 
 **Project-specific**:
 - Config location: `<project>/.claude/mcp_config.json`
 - Available only in that project
 - Use for: Team-specific tools (database MCP for API team only)
 
+### Installation Strategy by Purpose
+
+**Production Agent MCPs → Docker MCP Gateway:**
+- **When**: Building agents with Agent SDK that need MCPs in production
+- **How**: Enable MCP servers on Docker MCP Gateway
+- **Architecture**: Gateway = shared toolbox, agents get explicit keys (tool permissions)
+- **Benefit**: Same setup dev to production, centralized tool management
+
+```bash
+# Add MCP server to gateway (makes it available in the library)
+docker mcp server enable weather
+docker mcp server enable database
+
+# In Agent SDK config - explicitly grant agent access
+agent.tools = [
+  "mcp__weather",     // This agent has the "key" to use weather
+  "mcp__database"     // This agent has the "key" to use database
+]
+```
+
+**Key concept**: Just because an MCP is enabled on the gateway doesn't mean all agents can use it. Each agent must be explicitly configured with the tools it's allowed to access.
+
+**Development Tooling MCPs → Compiled Binaries (stdio):**
+- **When**: Local development tools for Claude Code sessions (debugging, testing, file ops)
+- **How**: Compile to binaries in `mr-tools`, install globally via `install-tool.sh`
+- **Scope options**:
+  - **System-wide** (`~/.claude.json`): Pete uses across all projects
+  - **Project-specific** (`.claude/mcp_config.json`): Only in that project
+- **Benefit**: Fast startup, offline support, version controlled, consistent with CLI tools
+
+**Installation workflow:**
+```bash
+# 1. Create MCP wrapper in mr-tools
+cd ~/Projects/mr-tools
+mkdir -p mcps
+cat > mcps/postgres-mcp.ts << 'EOF'
+#!/usr/bin/env bun
+import { spawn } from 'bun';
+// Wrapper or direct implementation
+EOF
+
+# 2. Compile to binary
+bun build ./mcps/postgres-mcp.ts --compile --outfile ./bin/mcp-postgres
+
+# 3. Install globally (optional, for system-wide access)
+./install-tool.sh mcp-postgres
+```
+
+**Example system-wide config:**
+```json
+// ~/.claude.json
+{
+  "mcpServers": {
+    "MCP_DOCKER": {
+      "command": "docker",
+      "args": ["mcp", "gateway", "run"]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["chrome-devtools-mcp@latest", "--isolated=true"]
+    },
+    "postgres": {
+      "command": "mcp-postgres",
+      "env": {
+        "POSTGRES_URL": "postgresql://..."
+      }
+    }
+  }
+}
+```
+
+**Example project-specific config:**
+```json
+// captain32-api/.claude/mcp_config.json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "/Users/pete/Projects/mr-tools/bin/mcp-postgres",
+      "env": {
+        "POSTGRES_URL": "postgresql://..."
+      }
+    }
+  }
+}
+```
+
+**Note**: Use `npx` for quick testing or one-off MCPs. Prefer compiled binaries for frequently used tools.
+
+### Docker MCP Gateway Architecture
+
+**Docker MCP Gateway (production agent infrastructure):**
+- Centralized tool library for all agents
+- Single endpoint, multiple MCP servers behind it
+- Agents connect to gateway, explicitly configured with allowed tools
+- Secure, isolated, containerized
+- Same setup works in dev and production
+
+```
+Docker MCP Gateway (Shared Library)
+├── Weather MCP
+├── Database MCP
+├── Research MCP
+└── Email MCP
+
+Agent 1 → Gateway (allowed: weather, database)
+Agent 2 → Gateway (allowed: email, database)
+Agent 3 → Gateway (allowed: research, database)
+```
+
+**Managing the gateway:**
+```bash
+# View available servers
+docker mcp catalog show docker-mcp
+
+# Enable MCP server (adds to library)
+docker mcp server enable postgres
+
+# Disable when not needed
+docker mcp server disable postgres
+```
+
 ## Installed MCP Servers
+
+### Docker MCP Toolkit (System-wide)
+
+**Purpose**: Docker Hub management, container operations, Cloudflare docs search
+
+**Installation method**: System-wide via Docker MCP gateway
+**Why Docker gateway**: Provides multiple tools through single connection, easy updates
+
+**Configuration**:
+```json
+{
+  "MCP_DOCKER": {
+    "type": "stdio",
+    "command": "docker",
+    "args": ["mcp", "gateway", "run"]
+  }
+}
+```
+
+**Available tools** (prefix: `mcp__MCP_DOCKER__`):
+- **Docker Hub Operations**:
+  - `search` - Find Docker images
+  - `getRepositoryInfo` / `listRepositoriesByNamespace` - Repository management
+  - `createRepository` / `updateRepositoryInfo` - Repository CRUD
+  - `listRepositoryTags` / `getRepositoryTag` - Tag management
+  - `listNamespaces` / `listAllNamespacesMemberOf` - Namespace operations
+  - `dockerHardenedImages` - Browse Docker Hardened Images (DHI)
+- **Docker CLI**:
+  - `docker` - Direct Docker command execution
+- **Documentation**:
+  - `search_cloudflare_documentation` - Search Cloudflare docs (Workers, Pages, D1, etc.)
+  - `migrate_pages_to_workers_guide` - Migration documentation
+
+**Use cases**:
+- Pete exploring available Docker images
+- API team researching Cloudflare Workers/D1 docs
+- Managing container registries and images
 
 ### Chrome DevTools MCP (System-wide)
 
 **Purpose**: Browser automation, debugging, testing web apps
+
+**Installation method**: Individual (requires `--isolated=true` flag)
+**Why individual**: Needs special flag for process isolation Docker can't provide
 
 **Configuration**:
 ```json
@@ -119,9 +280,16 @@ I'm the **tooling and infrastructure specialist** supporting Pete and all three 
 - `performance_analyze_insight` - Deep-dive metrics
 - `emulate_network` / `emulate_cpu` - Throttling simulation
 
+**Use cases**:
+- App team: Autonomous web debugging, testing Expo builds
+- API team: Testing worker endpoints in browser
+- Pete: General web app debugging
+
 ### Replicate MCP (System-wide)
 
 **Purpose**: AI image generation
+
+**Installation method**: SSE (deprecated transport - consider replacing)
 
 **Configuration**:
 ```json
@@ -225,22 +393,38 @@ When Pete asks to install an MCP server:
 
 2. **Determine scope**:
    - Ask: "System-wide or team-specific?"
-   - System-wide: For Pete + all teams
-   - Team-specific: For one Captain32 team only
+   - **System-wide**: For Pete + all teams
+   - **Team-specific**: For one Captain32 team only
 
-3. **Install & configure**:
-   - Use `claude mcp add` for stdio servers
-   - Manually edit `~/.claude.json` for complex configs
-   - Add any required env vars or flags
+3. **Choose installation method**:
 
-4. **Test the installation**:
-   - Run `claude mcp list` to verify
-   - Try basic tool usage to confirm
+   **For system-wide MCPs:**
+   - ✅ **Prefer Docker MCP gateway** (default choice)
+   - ❌ **Use individual installation only if:**
+     - Requires special flags (e.g., `--isolated=true`)
+     - Needs custom env vars Docker can't pass
+     - Performance critical (bypass gateway)
+     - Not available through Docker MCP
+
+   **For team-specific MCPs:**
+   - ✅ **Always install individually**
+   - Each team gets their own config file
+   - Better isolation and lighter context
+
+4. **Install & configure**:
+   - **Docker gateway**: Already configured, just verify with `claude mcp list`
+   - **Individual stdio**: Use `claude mcp add <name> <command> <args...> --scope user/project`
+   - **Manual config**: Edit `~/.claude.json` (system) or `<project>/.claude/mcp_config.json` (team)
+
+5. **Test the installation**:
+   - Run `claude mcp list` to verify connection
+   - Try basic tool usage to confirm functionality
    - Document any issues found
 
-5. **Document in mr-mcp**:
+6. **Document in mr-tools**:
    - Update this CLAUDE.md with server details
-   - Note configuration, tools, common patterns
+   - Note: Installation method, configuration, tools, use cases
+   - Add to appropriate section (system-wide vs team-specific)
 
 ## Team Communication & Coordination
 
@@ -250,7 +434,7 @@ This project has **one developer (Pete)** using **Claude Code** across four sepa
 - **captain32-mobile** - App Team Claude
 - **captain32-api** - API Team Claude
 - **captain32-agents** - Agents Team Claude
-- **mr-mcp** (this repo) - Mr. MCP Claude (me)
+- **mr-tools** (this repo) - Mr. Tools Claude (me)
 
 Each repo has a dedicated Claude instance that knows its codebase deeply. Teams communicate through Pete by passing messages.
 
@@ -272,10 +456,11 @@ Pete copies this to the other repo, gets a response, and brings it back.
 
 ### What Each Team Does
 
-**Mr. MCP (Me):**
+**Mr. Tools (Me):**
 - MCP server installation and configuration
-- Troubleshooting MCP issues across all teams
-- Testing MCP servers before teams use them
+- CLI tool installation and compilation
+- Troubleshooting MCP and tooling issues across all teams
+- Testing MCP servers and tools before teams use them
 - Documentation and best practices
 - System-wide tooling for Pete + all teams
 
