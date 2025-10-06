@@ -6,27 +6,51 @@ Mr Tools is a monorepo containing all CLI tools and MCP servers used across Pete
 
 ## Architecture
 
+### Two-Tier Tool Strategy
+
+Based on [Anthropic's guide to writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents), mr-tools uses a two-tier approach:
+
+**Tier 1: General CLI Tools** - Flexible, exploratory
+- Multi-purpose tools with subcommands
+- Agents use `--help` to discover capabilities
+- Good for varied/unknown workflows
+- Example: `gmail list`, `gmail search`, `gmail read`
+
+**Tier 2: Workflow Tools** - Focused, optimized
+- Single-purpose tools for known patterns
+- Named with clear intent: `gmail_clerk_pin`, `cal_today`
+- Faster execution, fewer tokens
+- Example: `gmail_clerk_pin` (just gets the PIN, no exploration needed)
+
 ```
 mr-tools/
-├── bin/                    # Executable entry points (~1KB each)
-│   ├── gmail              # #!/usr/bin/env bun
-│   ├── grok               # Runtime scripts (not compiled)
-│   ├── gcal
+├── bin/                    # All executables
+│   ├── gmail              # General CLI (Tier 1)
+│   ├── grok
+│   ├── gmail_clerk_pin    # Workflow tool (Tier 2)
+│   ├── cal_today
 │   └── ...
-├── tools/                 # CLI tool sources
+├── tools/                 # General CLI implementations (Tier 1)
 │   ├── gmail/
-│   │   ├── gmail.ts       # Main implementation
+│   │   ├── gmail.ts       # Full-featured email CLI
 │   │   ├── CLAUDE.md      # AI assistant docs
 │   │   └── README.md      # Human docs
 │   └── ...
+├── workflows/             # Workflow tool implementations (Tier 2)
+│   ├── email/
+│   │   ├── gmail_clerk_pin.ts
+│   │   └── gmail_latest_from.ts
+│   ├── scheduling/
+│   │   ├── cal_today.ts
+│   │   └── cal_next_free.ts
+│   ├── auth/
+│   └── content/
 ├── mcps/                  # MCP server sources
 │   └── (future MCPs here)
 ├── lib/                   # Shared utilities
 │   └── config.ts          # Centralized secrets management
-├── package.json           # Single dependency file for all tools
-├── install-tool.sh        # Global installation script
-├── CLAUDE.md              # Mr Tools AI documentation
-└── README.md              # This file
+├── package.json           # Single dependency file
+└── install-tool.sh        # Global installation script
 ```
 
 ## Why Runtime Scripts?
