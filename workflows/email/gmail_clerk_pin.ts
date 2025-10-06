@@ -26,8 +26,8 @@ const args = process.argv.slice(2);
 const jsonOutput = args.includes("--json");
 
 try {
-  // Get last 50 emails
-  const listOutput = execSync(`${GMAIL_BIN} list -n 50 --json`, { encoding: "utf-8" });
+  // Get last 5 emails (verification code will be recent)
+  const listOutput = execSync(`${GMAIL_BIN} list -n 5 --json`, { encoding: "utf-8" });
   const emails = JSON.parse(listOutput);
 
   // Search for verification code email
@@ -69,10 +69,10 @@ try {
   if (jsonOutput) {
     console.log(JSON.stringify({
       error: "No verification code found",
-      message: "No Clerk verification email found in last 50 messages"
+      message: "No Clerk verification email found in last 5 messages"
     }, null, 2));
   } else {
-    console.error("Error: No verification code found in last 50 emails");
+    console.error("Error: No verification code found in last 5 emails");
   }
   process.exit(1);
 
