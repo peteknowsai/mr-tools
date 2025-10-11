@@ -1,0 +1,2 @@
+# Keep bin/ directory in git but ignore all binaries
+# Compiled binaries are moved to ~/.local/bin/ by install-tool.sh
