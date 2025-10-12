@@ -27,3 +27,4 @@ yarn-error.log*
 bin/*
 !bin/.gitkeep
 .agent-checkpoints.json
+.wrangler/
