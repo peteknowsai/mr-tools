@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { createInterface } from "readline";
 import { getSecret, setSecret } from "../../lib/config";
 
 const TOKEN_DIR = join(homedir(), ".config", "tool-library", "gmail");
@@ -141,30 +142,31 @@ async function ensureToken(scopes: string[]): Promise<Token> {
   console.log("Opening browser for Google authorization...");
   await Bun.$`open ${authUrl.toString()}`.quiet();
 
-  const server = Bun.serve<{ code?: string }>({
+  // Capture code from OAuth redirect
+  let authCode: string | undefined;
+  const server = Bun.serve({
     port: 53171,
     fetch(req) {
       const url = new URL(req.url);
       const code = url.searchParams.get("code");
       if (code) {
-        return new Response("You may close this window.", { headers: { "content-type": "text/plain" } });
+        authCode = code; // Capture the code!
+        return new Response("✓ Authorization complete! You may close this window.", {
+          headers: { "content-type": "text/plain" }
+        });
       }
       return new Response("Missing code", { status: 400 });
     },
   });
 
-  // Wait for the first request that contains ?code=
-  let authCode: string | undefined;
-  // Poll server's pending requests via a simple loop waiting for a connection
-  // Since Bun.serve doesn't provide event hooks here, prompt the user for paste as fallback
-  console.log("If the browser did not redirect, paste the full redirected URL here:");
-  const pasted = (await Bun.readableStreamToText(Bun.stdin)).trim();
-  try {
-    const pastedUrl = new URL(pasted);
-    authCode = pastedUrl.searchParams.get("code") || undefined;
-  } catch {
-    // ignore
+  // Wait for OAuth redirect (up to 60 seconds)
+  console.log("Waiting for authorization...");
+  const timeout = 60000;
+  const start = Date.now();
+  while (!authCode && (Date.now() - start) < timeout) {
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
+
   server.stop();
 
   if (!authCode) throw new Error("Authorization code not received");
