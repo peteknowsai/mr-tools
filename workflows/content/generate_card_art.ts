@@ -30,7 +30,7 @@ import Replicate from "replicate";
 import { getSecret } from "../../lib/config";
 
 const MODEL = "google/nano-banana:1b7b945e8f7edf7a034eba6cb2c20f2ab5dc7d090eea1c616e96da947be76aee";
-const ASPECT_RATIO = "16:9";
+const ASPECT_RATIO = "4:3";
 const OUTPUT_FORMAT = "jpg";
 
 // Style descriptions for consistent illustration aesthetic
