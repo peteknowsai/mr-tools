@@ -29,10 +29,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Polling mechanism for video status is confirmed and documented
   3. Video retrieval endpoint and auth requirements are verified
   4. Complete async lifecycle (trigger -> poll -> retrieve) is documented end-to-end
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md - Capture video generation flow via DevTools, replicate with code, download video to Desktop
 
 ### Phase 2: Core Video Generation
 **Goal**: User can generate videos with text prompts and retrieve completed videos
@@ -101,7 +101,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Research Validation | 0/? | Not started | - |
+| 1. Research Validation | 0/1 | Planned | - |
 | 2. Core Video Generation | 0/? | Not started | - |
 | 3. Output & Integration | 0/? | Not started | - |
 | 4. Error Handling | 0/? | Not started | - |
