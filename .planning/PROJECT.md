@@ -4,6 +4,18 @@
 
 Pete's tooling and infrastructure hub for the Captain32 workspace. Houses MCP servers, CLI tools, and system-wide utilities that support development across all Captain32 teams.
 
+## Current Milestone: v1.0 Nanobanana Video
+
+**Goal:** Add video generation and retrieval capabilities to the nanobanana tool suite.
+
+**Target features:**
+- Video generation trigger (already works, needs polish)
+- Video status polling (check if generation complete)
+- Video retrieval and download
+- Video workflow integration (generate → poll → retrieve → save)
+
+---
+
 ## Core Value
 
 Provide reliable, well-documented tools that enable autonomous AI development workflows across all projects.
