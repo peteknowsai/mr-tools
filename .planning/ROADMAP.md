@@ -12,7 +12,7 @@ This roadmap adds video generation capabilities to the nanobanana tool suite. Th
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Research Validation** - Validate findings and document video generation lifecycle
+- [x] **Phase 1: Research Validation** - Validate findings and document video generation lifecycle
 - [ ] **Phase 2: Core Video Generation** - Implement video trigger, polling, and retrieval
 - [ ] **Phase 3: Output & Integration** - File output options and agent-friendly JSON mode
 - [ ] **Phase 4: Error Handling** - Robust handling for limits, timeouts, and failures
@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md - Capture video generation flow via DevTools, replicate with code, download video to Desktop
+- [x] 01-01-PLAN.md - Capture video generation flow via DevTools, replicate with code, download video to Desktop
 
 ### Phase 2: Core Video Generation
 **Goal**: User can generate videos with text prompts and retrieve completed videos
@@ -43,11 +43,12 @@ Plans:
   2. Tool automatically polls and reports when video is ready (with elapsed time display)
   3. User can retrieve completed video to local filesystem
   4. User can specify duration (4s/6s/8s) and aspect ratio (16:9/9:16) via flags
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md - Capture API format via Chrome DevTools (requires human action)
+- [ ] 02-02-PLAN.md - Build video.py module with async generation, polling, and retrieval
+- [ ] 02-03-PLAN.md - Add --video CLI flag with duration and aspect ratio options
 
 ### Phase 3: Output & Integration
 **Goal**: Flexible file output and programmatic use via JSON mode
@@ -101,12 +102,12 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Research Validation | 0/1 | Planned | - |
-| 2. Core Video Generation | 0/? | Not started | - |
+| 1. Research Validation | 1/1 | Complete | 2026-01-19 |
+| 2. Core Video Generation | 0/3 | Planned | - |
 | 3. Output & Integration | 0/? | Not started | - |
 | 4. Error Handling | 0/? | Not started | - |
 | 5. Advanced Features | 0/? | Not started | - |
 
 ---
 *Roadmap created: 2026-01-19*
-*Last updated: 2026-01-19*
+*Last updated: 2026-01-19 - Phase 2 planned (3 plans, 3 waves)*
