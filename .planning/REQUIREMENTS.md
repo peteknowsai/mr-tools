@@ -12,7 +12,7 @@ Requirements for initial release. Focus on cookie-based video generation via Gem
 - [ ] **RES-01**: Investigate Gemini web interface video generation request/response format
 - [ ] **RES-02**: Identify video status polling mechanism (how browser checks if video is ready)
 - [ ] **RES-03**: Determine video retrieval endpoint and authentication requirements
-- [ ] **RES-04**: Document async video generation lifecycle (trigger → poll → retrieve)
+- [ ] **RES-04**: Document async video generation lifecycle (trigger -> poll -> retrieve)
 
 ### Core Video Generation
 
@@ -120,8 +120,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 **Coverage:**
 - v1 requirements: 25 total
 - Mapped to phases: 25
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-19 after initial definition*
+*Last updated: 2026-01-19 after roadmap creation*
