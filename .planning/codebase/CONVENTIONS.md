@@ -1,91 +1,185 @@
 # Coding Conventions
 
-**Analysis Date:** 2025-01-19
+**Analysis Date:** 2026-01-20
 
 ## Naming Patterns
 
 **Files:**
-- CLI tools: `kebab-case.ts` (e.g., `slack-send.ts`, `gpt-image-gen.ts`)
-- Library modules: `camelCase.ts` (e.g., `config.ts`, `checkpoint.ts`)
-- Wrapper scripts in bin/: `kebab-case` (e.g., `grok`, `cal-com`, `google-maps`)
-- Workflows: `snake_case.ts` (e.g., `gmail_latest_from.ts`, `generate_card_art.ts`)
+- Tool entry points: `{tool-name}.ts` matching directory name (e.g., `tools/grok/grok.ts`)
+- Workflow files: `snake_case.ts` (e.g., `workflows/scheduling/cal_today.ts`)
+- Shared libraries: `camelCase.ts` (e.g., `lib/config.ts`, `lib/checkpoint.ts`)
+- Multi-file tools: `src/` subdirectory with `cli.ts`, `api.ts`, `types.ts`, `config.ts`
 
 **Functions:**
-- camelCase for all functions (e.g., `getApiKey()`, `saveCheckpoint()`, `parseArgs()`)
-- Prefix getters with `get` (e.g., `getSecret()`, `getBotToken()`, `getClientCreds()`)
-- Prefix setters with `set` (e.g., `setSecret()`)
-- Command handlers prefixed with `cmd` (e.g., `cmdConfig()`, `cmdList()`, `cmdDelete()`)
-- Async functions use same conventions
+- `camelCase` for all functions
+- Prefix with verb: `getSecret()`, `setSecret()`, `loadCheckpoints()`, `saveCheckpoint()`
+- API functions: `getApiKey()`, `callMaps()`, `postMessage()`
+- CLI handlers: `cmdConfig()`, `cmdList()`, `printHelp()`
 
 **Variables:**
-- camelCase for local variables (e.g., `authCode`, `jsonOutput`, `replicateKey`)
-- SCREAMING_SNAKE_CASE for constants (e.g., `DEFAULT_MODEL`, `BASE_URL`, `TOKEN_DIR`)
-- Object constants use SCREAMING_SNAKE_CASE with camelCase properties:
-  ```typescript
-  const STYLE_DESCRIPTIONS = {
-    watercolor: '...',
-    geometric: '...',
-  } as const;
-  ```
+- `camelCase` for local variables
+- `UPPER_SNAKE_CASE` for constants: `DEFAULT_MODEL`, `BASE_URL`, `CONFIG_DIR`
+- Type aliases: `PascalCase` (e.g., `CLIArgs`, `Token`, `Checkpoint`)
 
-**Types:**
-- PascalCase for type names (e.g., `Token`, `CLIArgs`, `Checkpoint`)
-- Interfaces: PascalCase with descriptive names (e.g., `SessionCheckpoints`, `SaveCheckpointOptions`)
-- Type inference from `z.infer<typeof Schema>` for Zod schemas
-- Use `type` for simple unions, `interface` for object shapes with methods
+**CLI Commands:**
+- Binary names: `kebab-case` (e.g., `gpt-image-gen`, `google-maps`, `slack-send`)
+- Subcommands: lowercase words (e.g., `config set`, `config show`, `place-search`)
+- Flags: `--kebab-case` (e.g., `--output-dir`, `--api-key`, `--json`)
 
 ## Code Style
 
-**Formatting:**
-- No explicit formatter configured (relies on editor defaults)
-- 2-space indentation
-- Semicolons at end of statements
-- Double quotes for strings
-- Trailing commas in multi-line arrays/objects
-
-**Linting:**
-- No ESLint/Prettier/Biome configuration
-- TypeScript strict mode via Bun's built-in type checking
-- Implicit type safety from `bun-types` package
-
-## Import Organization
-
-**Order:**
-1. Node.js built-ins (fs, path, os)
-2. External dependencies (@anthropic-ai/*, zod, etc.)
-3. Internal library imports (../../lib/config, ../../lib/checkpoint)
-
-**Pattern:**
+**Shebang:**
+All tool entry points start with:
 ```typescript
 #!/usr/bin/env bun
+```
+
+**Imports:**
+1. Node built-ins first: `fs`, `os`, `path`, `util`
+2. External packages second
+3. Local imports last (relative paths with `../../lib/`)
+
+```typescript
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { z } from "zod";
 import { getSecret, setSecret } from "../../lib/config";
 ```
 
-**Path Aliases:**
-- None configured - use relative paths
-- Common pattern: `../../lib/config` from tools directory
+**Type Definitions:**
+- Define types inline in single-file tools
+- Use dedicated `types.ts` for multi-file tools
+- Prefer `type` over `interface` for simple structures
+
+```typescript
+type CLIArgs = {
+  command?: string;
+  args: string[];
+  json?: boolean;
+  num?: number;
+};
+```
+
+**CLI Structure Pattern:**
+Every CLI tool follows this structure:
+
+```typescript
+#!/usr/bin/env bun
+import { getSecret, setSecret } from "../../lib/config";
+
+// Constants at top
+const DEFAULT_MODEL = process.env.X_MODEL || "default";
+const BASE_URL = "https://api.example.com";
+
+// Type definitions
+type CLIArgs = { command?: string; args: string[]; json?: boolean };
+
+// Helper to get API key (env first, then config)
+function getApiKey(): string | undefined {
+  return getSecret({ tool: "toolname", key: "api_key", env: ["TOOL_API_KEY"] });
+}
+
+// Help text function
+function printHelp() {
+  console.log(`Tool CLI (Bun)
+
+Usage:
+  tool command [options]
+  tool config set api-key <key>
+  tool config show
+`);
+}
+
+// Argument parser
+function parseArgs(argv: string[]): CLIArgs {
+  const out: CLIArgs = { args: [], json: false };
+  if (!argv.length) return out;
+  out.command = argv[0];
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--json") out.json = true;
+    else out.args.push(a);
+  }
+  return out;
+}
+
+// Config subcommand handler
+async function cmdConfig(args: string[]) {
+  if (args[0] === "show") {
+    const has = !!getApiKey();
+    console.log(JSON.stringify({ has_api_key: has }, null, 2));
+    return;
+  }
+  if (args[0] === "set" && args[1] === "api-key" && args[2]) {
+    setSecret({ tool: "toolname", key: "api_key" }, args[2]);
+    console.log("API key saved");
+    return;
+  }
+  printHelp();
+}
+
+// Main function
+async function main() {
+  const argv = process.argv.slice(2);
+  if (!argv.length || argv[0] === "-h" || argv[0] === "--help") { printHelp(); return; }
+  const a = parseArgs(argv);
+  switch (a.command) {
+    case "config": return cmdConfig(a.args);
+    // ... other commands
+    default: return printHelp();
+  }
+}
+
+main().catch(e => { console.error(`Error: ${e?.message || e}`); process.exit(1); });
+```
+
+**JSON Output:**
+Every command supports `--json` flag for machine-readable output:
+
+```typescript
+if (json) console.log(JSON.stringify(data, null, 2));
+else console.log(humanReadableFormat);
+```
+
+## Configuration
+
+**Central Secrets Management:**
+All tools use `lib/config.ts` for secrets:
+
+```typescript
+import { getSecret, setSecret } from "../../lib/config";
+
+// Get with env fallback
+const key = getSecret({
+  tool: "toolname",
+  key: "api_key",
+  env: ["TOOL_API_KEY", "ALTERNATE_KEY"]
+});
+
+// Set secret
+setSecret({ tool: "toolname", key: "api_key" }, value);
+```
+
+**Secrets file location:** `~/.config/mr-tools/secrets.json`
+
+**Priority order:**
+1. Environment variables (highest)
+2. Central secrets file
+3. Tool-local config (legacy fallback)
+
+**Config Subcommand Pattern:**
+Every tool implements:
+```bash
+tool config set api-key <key>   # Save API key
+tool config show                # Show config status (never show actual keys)
+```
+
+**Token Storage (OAuth tools):**
+OAuth tokens stored separately: `~/.config/tool-library/{tool}/token.json`
 
 ## Error Handling
 
-**Patterns:**
-- Try-catch at top level with process.exit(1)
-- Error messages via `console.error()`
-- Prefer error messages with context:
-  ```typescript
-  throw new Error("Missing Grok API key. Set GROK_API_KEY or run: grok config set api-key <key>");
-  ```
-- Specific error codes for HTTP responses:
-  ```typescript
-  if (error.message.includes("429")) {
-    throw new Error("Rate limit exceeded. Please wait and try again.");
-  }
-  ```
-
-**Standard error exit pattern:**
+**Main entry pattern:**
 ```typescript
 main().catch(e => {
   console.error(`Error: ${e?.message || e}`);
@@ -93,178 +187,127 @@ main().catch(e => {
 });
 ```
 
-**Validation errors (with Zod):**
+**API error checking:**
 ```typescript
-const result = Schema.safeParse(input);
-if (!result.success) {
-  const errors = result.error.errors
-    .map(err => `  - ${err.path.join('.')}: ${err.message}`)
-    .join('\n');
-  throw new Error(`Validation failed:\n${errors}`);
+const res = await fetch(url);
+const data = await res.json();
+if (!res.ok || data.error) {
+  throw new Error(data.error?.message || data.error_description || res.statusText);
 }
 ```
 
-## Logging
-
-**Framework:** console (no external logging library)
-
-**Patterns:**
-- Success: `console.log()` with checkmark emoji: `"✓ Message sent"`
-- Error: `console.error()` with `"Error: ..."` prefix
-- Debug info: JSON output with `--json` flag
-- Progress: Informational messages to stdout
-- No logging levels beyond console methods
-
-**Output conventions:**
+**Missing config errors:**
 ```typescript
-// Human-readable success
-console.log(`✓ Message sent to ${channel}`);
-
-// JSON mode for programmatic consumption
-if (json) console.log(JSON.stringify(data, null, 2));
-
-// Error with context
-console.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+if (!key) {
+  throw new Error("Missing API key. Set TOOL_API_KEY or run: tool config set api-key <key>");
+}
 ```
 
-## Comments
-
-**When to Comment:**
-- File-level JSDoc for CLI tools explaining purpose and usage
-- Complex logic or non-obvious code
-- Environment variable requirements
-- API-specific behavior notes
-
-**JSDoc/TSDoc:**
-- File headers with usage examples for CLI tools:
-  ```typescript
-  /**
-   * rewind - Time machine for Claude Code sessions
-   *
-   * Usage:
-   *   rewind                                    # List checkpoints
-   *   rewind day2 memory "what did you learn?"  # Query at checkpoint
-   */
-  ```
-- Method documentation for library functions:
-  ```typescript
-  /**
-   * Save a checkpoint to disk
-   *
-   * Creates or updates .agent-checkpoints.json with the checkpoint.
-   * Overwrites existing checkpoint if same day/step already exists.
-   */
-  ```
-
-## Function Design
-
-**Size:**
-- Prefer small, focused functions (10-50 lines)
-- Main entry points can be larger for CLI argument handling
-- Extract complex logic into helper functions
-
-**Parameters:**
-- Use options objects for functions with many parameters:
-  ```typescript
-  interface SaveCheckpointOptions {
-    sessionId: string;
-    userId: string;
-    dayNumber: number;
-    step: string;
-    stepName: string;
-    messageId: string;
-    filepath?: string;
-  }
-  ```
-- Optional parameters at end with defaults:
-  ```typescript
-  function loadCheckpoints(filepath: string = DEFAULT_CHECKPOINT_FILE): CheckpointStore
-  ```
-
-**Return Values:**
-- Return typed objects, not tuples
-- Use `Promise<T>` for async functions
-- Return `undefined` for not-found cases (not `null`)
-
-## Module Design
-
-**Exports:**
-- Named exports for library functions
-- Default export for main class if it's the primary API
-- Export interfaces/types that consumers need:
-  ```typescript
-  export interface Checkpoint { ... }
-  export function saveCheckpoint(options: SaveCheckpointOptions): void { ... }
-  ```
-
-**Barrel Files:**
-- Not used - import directly from source files
-
-## CLI Tool Pattern
-
-**Standard structure:**
-1. Shebang: `#!/usr/bin/env bun`
-2. Imports
-3. Constants (API URLs, paths)
-4. Type definitions
-5. Helper functions (getApiKey, parseArgs, printHelp)
-6. Command handlers (cmdConfig, cmdList, etc.)
-7. Main function with switch/case for commands
-8. Entry point: `main().catch(...)`
-
-**Argument parsing:**
+**Die helper (for fatal errors):**
 ```typescript
-type CLIArgs = {
-  command?: string;
-  args: string[];
-  json?: boolean;
-  // ... other flags
+function die(msg: string): never {
+  console.error(msg);
+  process.exit(1);
+}
+```
+
+## Documentation
+
+**Tool-level CLAUDE.md:**
+Each tool has `tools/{tool}/CLAUDE.md` with:
+- When to use the tool automatically
+- Key commands and examples
+- Integration patterns with other tools
+- Error handling guidance
+- AI-specific usage instructions
+
+**Project-level CLAUDE.md:**
+Root `CLAUDE.md` contains:
+- Repository overview
+- MCP architecture documentation
+- Installation workflows
+- Cross-tool patterns
+
+**Help text:**
+Every tool implements `printHelp()` with:
+- Usage examples
+- Available commands
+- Option descriptions
+- Notes on required setup
+
+## Wrapper Scripts
+
+**bin/ directory pattern:**
+Wrapper scripts in `bin/` import and run the tool:
+
+```typescript
+#!/usr/bin/env bun
+import "../tools/grok/grok.ts";
+```
+
+**Benefits:**
+- Small files (under 100 bytes)
+- Can be run directly with `bun`
+- Compiled binaries go to `~/.local/bin/` via `install-tool.sh`
+
+## Class-based Tools
+
+**For complex tools (multi-file):**
+Use class pattern as in `gpt-image-gen`:
+
+```typescript
+class ToolCLI {
+  private config: ConfigManager;
+
+  constructor() {
+    this.config = new ConfigManager();
+  }
+
+  async run(args: string[]): Promise<void> {
+    // Entry point
+  }
+
+  private parseArguments(args: string[]) {
+    // Argument parsing
+  }
+
+  private showHelp(): void {
+    // Help text
+  }
+}
+
+if (import.meta.main) {
+  const cli = new ToolCLI();
+  cli.run(Bun.argv.slice(2));
+}
+```
+
+## Output Formatting
+
+**Success messages:**
+```typescript
+console.log("Message sent to #channel");
+console.log("API key saved");
+```
+
+**Progress indicators (non-quiet mode):**
+```typescript
+if (!options.quiet) {
+  console.log(`Generating ${n} image(s)...`);
+}
+```
+
+**Color usage (optional, for rich CLI):**
+```typescript
+const colors = {
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  dim: "\x1b[2m"
 };
-
-function parseArgs(argv: string[]): CLIArgs {
-  const out: CLIArgs = { args: [], json: false };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--json") out.json = true;
-    else if (a === "--flag") out.flag = argv[++i];
-    else out.args.push(a);
-  }
-  return out;
-}
+console.log(`${colors.green}Success${colors.reset}`);
 ```
-
-**Config subcommand pattern:**
-```typescript
-async function cmdConfig(args: string[]) {
-  if (args[0] === "show") {
-    // Show current config
-  }
-  if (args[0] === "set" && args[1] === "api-key" && args[2]) {
-    setSecret({ tool: "toolname", key: "api_key" }, args[2]);
-    console.log("✓ API key saved");
-    return;
-  }
-  printHelp();
-}
-```
-
-## Secret Management Pattern
-
-**Centralized config via `lib/config.ts`:**
-```typescript
-// Reading secrets - env vars take priority
-const key = getSecret({
-  tool: "toolname",
-  key: "api_key",
-  env: ["TOOL_API_KEY", "ALTERNATIVE_KEY"]
-});
-
-// Writing secrets
-setSecret({ tool: "toolname", key: "api_key" }, value);
-```
-
-**Storage location:** `~/.config/mr-tools/secrets.json`
 
 ---
 
-*Convention analysis: 2025-01-19*
+*Convention analysis: 2026-01-20*

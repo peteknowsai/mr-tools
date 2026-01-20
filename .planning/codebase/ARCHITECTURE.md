@@ -1,146 +1,224 @@
-# Architecture
+# Architecture Analysis
 
-**Analysis Date:** 2026-01-19
+**Analysis Date:** 2026-01-20
+
+## Directory Structure
+
+```
+mr-tools/
+├── bin/             # Thin wrapper scripts (entry points)
+├── tools/           # Individual tool implementations
+├── lib/             # Shared libraries
+├── workflows/       # Workflow-specific focused tools
+├── hooks/           # Claude Code hooks (auto-capture)
+├── node_modules/    # Dependencies
+└── package.json     # Project manifest
+```
 
 ## Pattern Overview
 
-**Overall:** Two-Tier CLI Tool Library with Shared Infrastructure
+**Overall:** Two-Tier Tool Architecture
 
 **Key Characteristics:**
-- Standalone CLI tools organized by category (general vs workflow-specific)
-- Centralized secrets management via shared library
-- Thin wrapper scripts in `bin/` delegate to TypeScript/Python implementations
-- Tools compile to Bun binaries and install to `~/.local/bin/` for global access
-- Optional Claude Code hooks enable auto-checkpointing
+- Tier 1: General CLI tools in `tools/` - flexible, exploratory, multi-command
+- Tier 2: Workflow tools in `workflows/` - single-purpose, optimized for specific patterns
+- Entry points in `bin/` are thin wrappers that import tool implementations
+- Shared configuration via `lib/config.ts` for centralized secrets management
 
-## Layers
+## Tool Organization
 
-**Shared Libraries (`lib/`):**
-- Purpose: Common utilities shared across all tools
-- Location: `/Users/pete/Projects/mr-tools/lib/`
-- Contains: Secrets management, checkpoint persistence
-- Depends on: Node.js fs/os modules, Claude Agent SDK
-- Used by: All CLI tools, workflow scripts, hook scripts
+**Tool Directory Pattern:** Each tool lives in `tools/{tool-name}/`
 
-**General CLI Tools (`tools/`):**
-- Purpose: Flexible, multi-command tools for varied tasks
-- Location: `/Users/pete/Projects/mr-tools/tools/{tool-name}/`
-- Contains: TypeScript/Python implementations with subcommands
-- Depends on: `lib/config.ts` for secrets, external APIs
-- Used by: Users directly, workflow tools, Claude Code sessions
+**Standard Structure:**
+```
+tools/{name}/
+├── {name}.ts          # Main implementation (TypeScript/Bun)
+├── CLAUDE.md          # AI instructions for using the tool (optional)
+└── README.md          # Human documentation (optional)
+```
 
-**Workflow Tools (`workflows/`):**
-- Purpose: Single-purpose tools optimized for specific agent patterns
-- Location: `/Users/pete/Projects/mr-tools/workflows/{category}/`
-- Contains: Focused scripts that wrap general tools
-- Depends on: General CLI tools, `lib/` functions
-- Used by: Autonomous agents with known workflows
+**Complex Tools** (like `gpt-image-gen`) may have additional structure:
+```
+tools/gpt-image-gen/
+├── src/
+│   ├── cli.ts         # CLI entry point
+│   ├── api.ts         # API client
+│   ├── config.ts      # Tool-specific config
+│   ├── types.ts       # TypeScript types
+│   └── converter.ts   # Utilities
+└── build.ts           # Build script
+```
 
-**Binary Wrappers (`bin/`):**
-- Purpose: Thin shell scripts that invoke tool implementations
-- Location: `/Users/pete/Projects/mr-tools/bin/`
-- Contains: 2-3 line scripts importing TypeScript modules
-- Depends on: Bun runtime, tool implementations in `tools/`
-- Used by: Users, PATH-based invocation, install-tool.sh
-
-**Hooks (`hooks/`):**
-- Purpose: Claude Code integration via Stop/Start hooks
-- Location: `/Users/pete/Projects/mr-tools/hooks/`
-- Contains: Shell scripts triggered by Claude Code events
-- Depends on: Installed binaries in `~/.local/bin/`
-- Used by: Claude Code hook system
-
-## Data Flow
-
-**Secrets Retrieval:**
-
-1. Tool calls `getSecret({ tool, key, env })`
-2. Library checks environment variables (priority order)
-3. Falls back to `~/.config/mr-tools/secrets.json`
-4. Returns value or undefined
-
-**Tool Invocation (via bin wrapper):**
-
-1. User runs `grok "query"` from any directory
-2. Bun executes `/Users/pete/Projects/mr-tools/bin/grok`
-3. Wrapper imports `../tools/grok/grok.ts`
-4. Tool parses args, loads secrets, calls external API
-5. Output goes to stdout (text or JSON)
-
-**Checkpoint Auto-Capture:**
-
-1. Claude Code Stop hook triggers `hooks/auto-jump.sh`
-2. Script extracts session/message IDs from transcript
-3. Runs `checkpoint-auto-capture` binary in background
-4. Binary generates AI label via Claude Agent SDK
-5. Saves checkpoint to `.agent-checkpoints.json`
-
-**State Management:**
-- Secrets stored in `~/.config/mr-tools/secrets.json`
-- OAuth tokens stored in `~/.config/tool-library/{tool}/token.json`
-- Checkpoints stored in project-local `.agent-checkpoints.json`
-- No global runtime state; each invocation is stateless
-
-## Key Abstractions
-
-**SecretLookup:**
-- Purpose: Unified interface for retrieving API keys/tokens
-- Examples: `lib/config.ts`
-- Pattern: Environment vars take priority over config file
-
-**Checkpoint:**
-- Purpose: Point-in-time snapshot of Claude conversation
-- Examples: `lib/checkpoint.ts`
-- Pattern: Session + message ID enables temporal queries
-
-**CLI Tool:**
-- Purpose: Standalone executable with subcommands and flags
-- Examples: `tools/gmail/gmail.ts`, `tools/grok/grok.ts`
-- Pattern: `config show/set`, `--json` output, `--help` flag
-
-**Workflow Tool:**
-- Purpose: Focused wrapper around general tool for specific use case
-- Examples: `workflows/email/gmail_clerk_pin.ts`
-- Pattern: Hardcoded parameters, minimal flags, single output
+**Language Support:**
+- **TypeScript/Bun** (primary): Most tools (`grok`, `cal-com`, `gmail`, `rewind`, `jump`)
+- **Python** (secondary): `nanobanana` uses Python with venv
 
 ## Entry Points
 
-**User CLI (`bin/`):**
-- Location: `/Users/pete/Projects/mr-tools/bin/{tool-name}`
-- Triggers: User invocation from terminal
-- Responsibilities: Import and execute tool implementation
+**Pattern:** `bin/{tool-name}` are thin wrappers
 
-**Tool Implementation (`tools/{tool}/`):**
-- Location: `/Users/pete/Projects/mr-tools/tools/{tool-name}/{tool-name}.ts`
-- Triggers: Import from bin wrapper
-- Responsibilities: Parse args, call APIs, format output
+**TypeScript Tools:**
+```typescript
+#!/usr/bin/env bun
+import "../tools/grok/grok.ts";
+```
 
-**Hook Entry (`hooks/`):**
-- Location: `/Users/pete/Projects/mr-tools/hooks/auto-jump.sh`
-- Triggers: Claude Code Stop hook
-- Responsibilities: Extract context, invoke checkpoint capture
+**Python Tools:**
+```bash
+#!/bin/bash
+exec "${VENV_PYTHON}" "${TOOL_DIR}/nanobanana.py" "$@"
+```
 
-**Installer (`install-tool.sh`):**
-- Location: `/Users/pete/Projects/mr-tools/install-tool.sh`
-- Triggers: Manual execution or build scripts
-- Responsibilities: Move binaries to `~/.local/bin/`, update PATH
+**Key Files:**
+- `bin/grok`: Imports `tools/grok/grok.ts`
+- `bin/cal-com`: Imports `tools/cal-com/cal-com.ts`
+- `bin/nanobanana`: Shell wrapper for Python venv
 
-## Error Handling
+## Shared Code
 
-**Strategy:** Fail fast with descriptive errors to stderr
+**`lib/config.ts`** - Centralized secrets management
 
-**Patterns:**
-- API errors: Print message and exit with code 1
-- Missing config: Suggest specific `config set` command
-- JSON output mode: Return `{"status": "error", "error": "..."}`
-- Never swallow exceptions silently
+**Functions:**
+- `getSecret({ tool, key, env })` - Get secret with env var fallback
+- `setSecret({ tool, key }, value)` - Store secret
+- `readSecrets()` / `writeSecrets()` - Raw JSON access
+
+**Storage Location:** `~/.config/mr-tools/secrets.json`
+
+**Usage Pattern:**
+```typescript
+import { getSecret, setSecret } from "../../lib/config";
+
+// Get API key with env fallback
+const key = getSecret({
+  tool: "grok",
+  key: "api_key",
+  env: ["GROK_API_KEY", "XAI_API_KEY"]
+});
+
+// Set via CLI
+setSecret({ tool: "grok", key: "api_key" }, value);
+```
+
+**`lib/checkpoint.ts`** - Checkpoint system for agent session management
+
+**Functions:**
+- `saveCheckpoint()` - Save checkpoint to `.agent-checkpoints.json`
+- `loadCheckpoints()` / `getCheckpoint()` - Read checkpoints
+- `saveAutoCheckpoint()` - Auto-capture with AI-generated labels
+- `findCheckpointByLabel()` - Search by partial match
+
+**Used By:**
+- `tools/rewind/rewind.ts` - Time machine for agent sessions
+- `tools/jump/jump.ts` - Auto-labeled navigation
+- `tools/checkpoint-auto-capture.ts` - Hook for auto-capture
+
+## CLI Pattern
+
+**Standard CLI Structure:**
+```typescript
+#!/usr/bin/env bun
+import { getSecret, setSecret } from "../../lib/config";
+
+function printHelp() { /* Usage info */ }
+function parseArgs(argv: string[]): CLIArgs { /* Parse args */ }
+
+// Subcommands
+async function cmdConfig(args: string[]) { /* config set/show */ }
+async function cmdMain(args: string[], json: boolean) { /* primary action */ }
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (!argv.length || argv[0] === "-h" || argv[0] === "--help") {
+    printHelp();
+    return;
+  }
+  const a = parseArgs(argv);
+  switch (a.command) {
+    case "config": return cmdConfig(a.args);
+    default: return cmdMain(a.args, !!a.json);
+  }
+}
+
+main().catch(e => { console.error(`Error: ${e?.message || e}`); process.exit(1); });
+```
+
+**Common Flags:**
+- `--json` - Structured output for programmatic use
+- `--help` / `-h` - Show usage
+- `config set {key} {value}` - Store secrets
+- `config show` - Display config status
+
+## Distribution
+
+**Installation Script:** `install-tool.sh`
+
+**Purpose:** Move compiled binaries from `bin/` to `~/.local/bin/` to prevent Claude Code checkpoint bloat
+
+**Usage:**
+```bash
+./install-tool.sh grok
+```
+
+**Process:**
+1. Creates `~/.local/bin/` if needed
+2. Adds to PATH in `.zshrc` / `.bashrc`
+3. Moves binary from `bin/` to `~/.local/bin/`
+
+**Binary Compilation:**
+```bash
+bun build ./tools/grok/grok.ts --compile --outfile ./bin/grok
+./install-tool.sh grok
+```
+
+**Note:** The `bin/` directory contains thin wrapper scripts for development. Compiled binaries should be moved to `~/.local/bin/` for production use.
+
+## Workflow Tools
+
+**Location:** `workflows/{domain}/`
+
+**Pattern:** Single-purpose wrappers around general CLI tools
+
+**Structure:**
+```
+workflows/
+├── auth/         # Authentication workflows
+├── email/        # Email-specific workflows
+├── scheduling/   # Calendar workflows
+└── content/      # Publishing workflows
+```
+
+**Naming Convention:** `{domain}_{action}_{specifics}`
+- `gmail_clerk_pin` - Get Clerk verification code
+- `cal_today` - Show today's calendar
+- `gmail_latest_from` - Get latest email from sender
+
+**Philosophy:** Tier 2 tools are laser-focused for known agent workflows, vs Tier 1 general tools that support exploration.
+
+## Data Flow
+
+**Configuration Flow:**
+1. CLI receives command
+2. `lib/config.ts` checks env vars first
+3. Falls back to `~/.config/mr-tools/secrets.json`
+4. Tool uses secret for API calls
+
+**Checkpoint Flow:**
+1. Agent saves checkpoint via `lib/checkpoint.ts`
+2. Stored in `.agent-checkpoints.json` (project-local)
+3. `rewind` or `jump` tools query checkpoints
+4. Uses Claude Agent SDK to resume at checkpoint
 
 ## Cross-Cutting Concerns
 
-**Logging:** Console output only; `--quiet` flag suppresses progress
-**Validation:** Zod schemas for complex inputs (e.g., gpt-image-gen)
-**Authentication:** Per-tool OAuth flows with local token storage
+**Error Handling:** Try/catch with `process.exit(1)` on failure
+
+**Output Modes:**
+- Human-readable (default)
+- JSON (`--json` flag) for programmatic use
+
+**Authentication:** Per-tool secrets stored centrally, env vars take priority
 
 ---
 
-*Architecture analysis: 2026-01-19*
+*Architecture analysis: 2026-01-20*
