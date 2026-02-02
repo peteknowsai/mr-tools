@@ -1,6 +1,6 @@
 ---
 name: prime
-description: Boot up for a fresh mr-tools session. Reviews recent commits, scans project state, checks GSD planning, and maintains a session scratchpad. Use at the start of any session to get oriented quickly.
+description: Boot up for a fresh mr-tools session. Reviews recent commits, scans project state, and maintains a session scratchpad. Use at the start of any session to get oriented quickly.
 ---
 
 # Prime - Session Bootup for mr-tools
@@ -31,16 +31,9 @@ git branch --show-current
 ```bash
 # Tools available
 ls tools/
-
-# Any planning state (GSD)?
-ls .planning/ 2>/dev/null && ls .planning/features/ 2>/dev/null
 ```
 
-### 4. Check for In-Progress GSD Work
-
-If `.planning/features/` has subdirectories, read any `current-plan.md` or similar files to understand active work.
-
-### 5. Update the Scratchpad
+### 4. Update the Scratchpad
 
 Update `.claude/prime-state.md` with:
 - **Last Primed:** current timestamp
@@ -49,12 +42,11 @@ Update `.claude/prime-state.md` with:
 - **In-Progress Items:** uncommitted changes, active features
 - Append to **Session History** with today's date
 
-### 6. Report Ready
+### 5. Report Ready
 
 Give Pete a concise summary (3-5 lines max):
 1. Recent activity (what's been happening)
 2. Current state (uncommitted changes, active branches)
-3. Any in-progress GSD work
-4. Ready for instructions
+3. Ready for instructions
 
 Keep it brief - Pete wants to work, not read.

@@ -3,24 +3,22 @@
 **Last Primed:** 2026-02-01
 
 ## Recent Activity
-Added /prime and /commit skills. yt-transcript tool implementation in progress - Python CLI exists in `tools/yt-transcript/` with venv setup.
+Refactored nanobanana from Python to Bun/TypeScript (latest commit). Added /prime and /commit skills. yt-transcript Python CLI exists in `tools/yt-transcript/`.
 
 ## Current Focus
-**yt-transcript** - Tool partially built:
-- Python CLI at `tools/yt-transcript/yt_transcript.py`
-- venv created, requirements installed
-- Needs: testing, global install, sub-agent creation
+**yt-transcript** - Python CLI built but not tested/installed:
+- `tools/yt-transcript/yt_transcript.py` (5KB, executable)
+- venv created with youtube-transcript-api installed
 
 ## In-Progress Items
-- `tools/yt-transcript/` - Python CLI built (untracked, needs commit)
-- Next: Test the CLI, then create `youtube-analyst` sub-agent
+- yt-transcript CLI needs: testing, global install to bin/, sub-agent `youtube-analyst` creation
+- Working tree is clean (all committed)
 
 ## Notes for Next Session
-- CLI exists but untracked — test then commit
-- Sub-agent `youtube-analyst` definition still needed
-- Auto-detection on YouTube URLs (update CLAUDE.md or agents)
+- Test yt-transcript CLI: `./tools/yt-transcript/.venv/bin/python ./tools/yt-transcript/yt_transcript.py <youtube-url>`
+- Install globally after testing
+- Create `youtube-analyst` sub-agent for auto-detection on YouTube URLs
 
 ## Session History
 - 2026-02-01: Initial /prime skill setup
-- 2026-02-01: First prime - GSD yt-transcript ready for Phase 1
-- 2026-02-01: Session prime - CLI exists, ready for testing
+- 2026-02-01: Removed GSD system, cleaned up CLAUDE.md and /prime skill
