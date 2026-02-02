@@ -16,12 +16,9 @@ Usage:
 import argparse
 import asyncio
 import json
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
-
-import httpx
 
 # Config paths
 CONFIG_DIR = Path.home() / ".nanobanana"
@@ -31,15 +28,6 @@ DEFAULT_OUTPUT_DIR = CONFIG_DIR / "images"
 # Exit codes
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
-
-# Gemini endpoints
-GEMINI_HOST = "gemini.google.com"
-STREAM_GENERATE_URL = f"https://{GEMINI_HOST}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
-
-# Model header for image generation - UPDATED FORMAT
-# Based on gemini-webapi PR #209: https://github.com/HanaokaYuzu/Gemini-API/pull/209
-# Old format "[4]" stopped working - new format includes additional metadata
-MODEL_HEADER = {"x-goog-ext-525001261-jspb": '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,2]'}
 
 
 def setup_cookies():
@@ -94,119 +82,6 @@ def load_cookies() -> dict:
         return json.loads(COOKIE_FILE.read_text())
     except json.JSONDecodeError:
         return None
-
-
-def build_request_body(prompt: str, access_token: str) -> str:
-    """Build the StreamGenerate request body with updated parameters."""
-    import orjson
-
-    # Build the inner request structure
-    inner = orjson.dumps([
-        [prompt],  # Prompt array
-        None,      # Files placeholder
-        None,      # Chat metadata placeholder
-    ]).decode()
-
-    outer = orjson.dumps([None, inner]).decode()
-
-    # Include new payload parameters from PR #209
-    # idx17=[[1]] enables image generation mode
-    # idx49=14 sets the generation parameters
-    return f"at={access_token}&f.req={outer}&idx17=%5B%5B1%5D%5D&idx49=14"
-
-
-def parse_streaming_response(data: str) -> list:
-    """Parse streaming response chunks and unpack nested JSON strings."""
-    results = []
-
-    # Remove the leading ")]}'" if present (Google's XSSI protection)
-    if data.startswith(")]}'"):
-        data = data[4:]
-
-    lines = data.strip().split('\n')
-
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        # Lines starting with numbers are byte counts for the next line
-        if line.isdigit():
-            if i + 1 < len(lines):
-                json_line = lines[i + 1]
-                try:
-                    parsed = json.loads(json_line)
-                    # Unpack nested JSON structures
-                    unpacked = unpack_nested_json(parsed)
-                    results.append(unpacked)
-                except json.JSONDecodeError:
-                    pass
-            i += 2
-        else:
-            # Try to parse as JSON directly
-            try:
-                parsed = json.loads(line)
-                unpacked = unpack_nested_json(parsed)
-                results.append(unpacked)
-            except json.JSONDecodeError:
-                pass
-            i += 1
-
-    return results
-
-
-def unpack_nested_json(obj, depth=0):
-    """Recursively unpack JSON strings within the structure."""
-    if depth > 10:
-        return obj
-
-    if isinstance(obj, str):
-        # Try to parse as JSON
-        if obj.startswith('[') or obj.startswith('{'):
-            try:
-                parsed = json.loads(obj)
-                return unpack_nested_json(parsed, depth + 1)
-            except json.JSONDecodeError:
-                return obj
-        return obj
-    elif isinstance(obj, list):
-        return [unpack_nested_json(item, depth + 1) for item in obj]
-    elif isinstance(obj, dict):
-        return {k: unpack_nested_json(v, depth + 1) for k, v in obj.items()}
-    else:
-        return obj
-
-
-def extract_image_urls(parsed_chunks: list) -> list:
-    """Extract image URLs from parsed response chunks."""
-    image_urls = []
-
-    for chunk in parsed_chunks:
-        urls = find_image_urls_recursive(chunk)
-        image_urls.extend(urls)
-
-    return list(set(image_urls))  # Deduplicate
-
-
-def find_image_urls_recursive(obj, depth=0) -> list:
-    """Recursively find image URLs in nested structure."""
-    if depth > 30:
-        return []
-
-    urls = []
-
-    if isinstance(obj, str):
-        # Only match actual URLs that start with https://
-        if obj.startswith("https://lh3.googleusercontent.com/gg-dl/"):
-            urls.append(obj)
-        elif obj.startswith("https://") and "googleusercontent.com" in obj:
-            urls.append(obj)
-    elif isinstance(obj, list):
-        for item in obj:
-            urls.extend(find_image_urls_recursive(item, depth + 1))
-    elif isinstance(obj, dict):
-        for value in obj.values():
-            urls.extend(find_image_urls_recursive(value, depth + 1))
-
-    return urls
 
 
 async def edit_image(prompt: str, input_image: Path, output_dir: Path, filename: str, timeout: int = 120, debug: bool = False) -> dict:
@@ -272,11 +147,11 @@ async def edit_image(prompt: str, input_image: Path, output_dir: Path, filename:
             await client.close()
 
 
-async def generate_image_streaming(prompt: str, output_dir: Path, filename: str, timeout: int = 120, debug: bool = False) -> dict:
-    """Generate image using gemini-webapi for auth, then direct StreamGenerate calls."""
+async def generate_image(prompt: str, output_dir: Path, filename: str, timeout: int = 120, debug: bool = False) -> dict:
+    """Generate image using gemini-webapi library directly."""
     try:
         from gemini_webapi import GeminiClient
-        from gemini_webapi.constants import Headers
+        from gemini_webapi.constants import Model
     except ImportError:
         return {"status": "error", "error": "gemini-webapi not installed. Run: pip install gemini-webapi"}
 
@@ -288,110 +163,41 @@ async def generate_image_streaming(prompt: str, output_dir: Path, filename: str,
         return {"status": "error", "error": "Invalid cookies. Run: nanobanana --setup"}
 
     try:
-        # Use gemini-webapi for authentication
         if debug:
-            print("Initializing GeminiClient for auth...", file=sys.stderr)
+            print("Initializing GeminiClient...", file=sys.stderr)
 
         client = GeminiClient(
             secure_1psid=cookies["Secure_1PSID"],
             secure_1psidts=cookies.get("Secure_1PSIDTS")
         )
-        await client.init(timeout=60, auto_close=False, auto_refresh=False, verbose=debug)
+        await client.init(timeout=timeout, auto_close=False, auto_refresh=False, verbose=debug)
 
-        access_token = client.access_token
-        valid_cookies = client.cookies
-
-        if debug:
-            print(f"Got access token: {access_token[:20]}...", file=sys.stderr)
-            print(f"Got cookies: {list(valid_cookies.keys())}", file=sys.stderr)
-
-        # Now make our own streaming request with updated headers
-        base_headers = dict(Headers.GEMINI.value)
-        headers = {**base_headers, **MODEL_HEADER}
-
-        body = build_request_body(prompt, access_token)
+        # Prepend "Generate an image of:" to trigger image generation mode
+        generation_prompt = f"Generate an image of: {prompt}"
 
         if debug:
-            print(f"Sending streaming request...", file=sys.stderr)
-            print(f"Model header: {MODEL_HEADER}", file=sys.stderr)
+            print(f"Sending prompt: {generation_prompt}", file=sys.stderr)
 
-        accumulated_data = ""
-        image_urls = []
+        response = await client.generate_content(
+            generation_prompt,
+            model=Model.G_3_0_PRO
+        )
 
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout),
-            follow_redirects=True,
-            cookies=valid_cookies,
-        ) as http_client:
-            async with http_client.stream("POST", STREAM_GENERATE_URL, headers=headers, content=body) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    if debug:
-                        print(f"Error response: {error_text[:500]}", file=sys.stderr)
-                    return {"status": "error", "error": f"HTTP {response.status_code}: {response.reason_phrase}"}
-
-                if debug:
-                    print("Streaming response...", file=sys.stderr)
-
-                chunk_count = 0
-                async for chunk in response.aiter_text():
-                    accumulated_data += chunk
-                    chunk_count += 1
-
-                    # Progress indicator
-                    if debug and chunk_count % 5 == 0:
-                        print(f"  Received {len(accumulated_data)} bytes...", file=sys.stderr)
-
-                    # Check for image URLs periodically
-                    if len(accumulated_data) % 10000 < len(chunk):
-                        parsed = parse_streaming_response(accumulated_data)
-                        urls = extract_image_urls(parsed)
-                        if urls:
-                            image_urls = urls
-                            if debug:
-                                print(f"  Found {len(urls)} image URL(s)", file=sys.stderr)
-
+        if response.images:
             if debug:
-                print(f"Stream complete. Total: {len(accumulated_data)} bytes", file=sys.stderr)
-                # Save debug output
-                debug_file = output_dir / f"{filename}_debug.txt"
-                output_dir.mkdir(parents=True, exist_ok=True)
-                debug_file.write_text(accumulated_data)
-                print(f"Debug saved to {debug_file}", file=sys.stderr)
-
-            # Final parse
-            if not image_urls:
-                parsed = parse_streaming_response(accumulated_data)
-                image_urls = extract_image_urls(parsed)
-
-            if not image_urls:
-                if "Loading Nano Banana Pro" in accumulated_data:
-                    return {"status": "error", "error": "Image generation timed out. Try longer --timeout"}
-                if "I can search for images" in accumulated_data:
-                    return {"status": "error", "error": "Image generation failed - API returned search mode instead of generation. Cookies may need refresh."}
-                if debug:
-                    print("No image URLs found", file=sys.stderr)
-                return {"status": "error", "error": "No image URLs found in response"}
-
-            if debug:
-                print(f"Found {len(image_urls)} image URL(s):", file=sys.stderr)
-                for url in image_urls[:3]:
-                    print(f"  {url[:80]}...", file=sys.stderr)
-
-            # Download image
-            image_url = image_urls[0]
-            img_response = await http_client.get(image_url)
-            if img_response.status_code != 200:
-                return {"status": "error", "error": f"Failed to download image: HTTP {img_response.status_code}"}
+                print(f"Found {len(response.images)} image(s)", file=sys.stderr)
 
             output_dir.mkdir(parents=True, exist_ok=True)
+            await response.images[0].save(path=str(output_dir), filename=f"{filename}.png")
             filepath = output_dir / f"{filename}.png"
-            filepath.write_bytes(img_response.content)
 
             return {"status": "complete", "filepath": str(filepath)}
+        else:
+            error_msg = response.text if response.text else "No image returned"
+            if debug:
+                print(f"No images returned. Text: {error_msg[:200]}", file=sys.stderr)
+            return {"status": "error", "error": f"No image generated. Response: {error_msg[:100]}"}
 
-    except httpx.TimeoutException:
-        return {"status": "error", "error": f"Request timed out after {timeout}s"}
     except Exception as e:
         if debug:
             import traceback
@@ -444,7 +250,7 @@ Examples:
         input_image = Path(args.edit)
         result = asyncio.run(edit_image(args.prompt, input_image, output_dir, filename, args.timeout, args.debug))
     else:
-        result = asyncio.run(generate_image_streaming(args.prompt, output_dir, filename, args.timeout, args.debug))
+        result = asyncio.run(generate_image(args.prompt, output_dir, filename, args.timeout, args.debug))
 
     # Output result
     if args.json:

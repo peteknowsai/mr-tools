@@ -3,22 +3,24 @@
 **Last Primed:** 2026-02-01
 
 ## Recent Activity
-GSD planning for `yt-transcript` tool - YouTube transcript fetcher. Completed research phase and phase planning. Ready to start Phase 1 (CLI Tool implementation).
+Added /prime and /commit skills. yt-transcript tool implementation in progress - Python CLI exists in `tools/yt-transcript/` with venv setup.
 
 ## Current Focus
-**yt-transcript** - A CLI tool to fetch YouTube video transcripts using Python's `youtube-transcript-api`. Will power a `youtube-analyst` sub-agent that auto-triggers on YouTube URLs.
+**yt-transcript** - Tool partially built:
+- Python CLI at `tools/yt-transcript/yt_transcript.py`
+- venv created, requirements installed
+- Needs: testing, global install, sub-agent creation
 
 ## In-Progress Items
-- `.planning/features/yt-transcript` - GSD feature planning (committed)
-- `tools/yt-transcript/` - Tool directory created (untracked)
-- `.claude/skills/prime.md` - This prime skill (untracked)
+- `tools/yt-transcript/` - Python CLI built (untracked, needs commit)
+- Next: Test the CLI, then create `youtube-analyst` sub-agent
 
 ## Notes for Next Session
-- Phase 1 ready to start: Build the Python CLI tool
-- Decision: Use Python with `youtube-transcript-api` (no auth required)
-- Decision: Sub-agent named `youtube-analyst`, auto-invoked on YouTube URLs
-- Limitation: 10-20% of videos lack transcripts, age-restricted won't work
+- CLI exists but untracked — test then commit
+- Sub-agent `youtube-analyst` definition still needed
+- Auto-detection on YouTube URLs (update CLAUDE.md or agents)
 
 ## Session History
 - 2026-02-01: Initial /prime skill setup
 - 2026-02-01: First prime - GSD yt-transcript ready for Phase 1
+- 2026-02-01: Session prime - CLI exists, ready for testing
