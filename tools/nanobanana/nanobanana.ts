@@ -8,7 +8,6 @@
  * Usage:
  *   nanobanana "a friendly robot"              # Generate image (local)
  *   nanobanana --cloudflare "prompt"           # Upload to Cloudflare Images
- *   nanobanana --rotate                        # Refresh cookies only
  *   nanobanana --json "prompt"                 # JSON output for agents
  *   nanobanana -o logo -d /tmp "prompt"        # Custom output
  */
@@ -16,7 +15,7 @@
 import { parseArgs } from "util";
 import { homedir } from "os";
 import { join } from "path";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 
 // Cloudflare secrets path
 const SECRETS_FILE = join(homedir(), ".config/mr-tools/secrets.json");
@@ -30,7 +29,6 @@ const DEFAULT_OUTPUT_DIR = join(CONFIG_DIR, "images");
 const GOOGLE_URL = "https://www.google.com";
 const INIT_URL = "https://gemini.google.com/app";
 const GENERATE_URL = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate";
-const ROTATE_URL = "https://accounts.google.com/RotateCookies";
 
 // Headers
 const GEMINI_HEADERS = {
@@ -63,6 +61,8 @@ interface GenerateResult {
 interface CloudflareConfig {
   account_id: string;
   images_token: string;
+  kv_token?: string;
+  kv_namespace_id?: string;
 }
 
 /**
@@ -79,6 +79,8 @@ function loadCloudflareConfig(): CloudflareConfig | null {
       return {
         account_id: secrets.cloudflare.account_id,
         images_token: secrets.cloudflare.images_token,
+        kv_token: secrets.cloudflare?.kv_token,
+        kv_namespace_id: secrets.cloudflare?.kv_namespace_id,
       };
     }
     return null;
@@ -136,14 +138,48 @@ async function uploadToCloudflare(
 }
 
 /**
- * Load cookies from config file
+ * Load cookies from Cloudflare KV (central store), falling back to local cache.
+ * Saves KV cookies to local cache for offline use.
  */
-function loadCookies(): Cookies | null {
+async function loadCookies(debug = false): Promise<Cookies | null> {
+  const cfConfig = loadCloudflareConfig();
+
+  // Try KV first if configured
+  if (cfConfig?.kv_token && cfConfig?.kv_namespace_id) {
+    try {
+      const url = `https://api.cloudflare.com/client/v4/accounts/${cfConfig.account_id}/storage/kv/namespaces/${cfConfig.kv_namespace_id}/values/gemini`;
+      if (debug) console.error("Fetching cookies from KV...");
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${cfConfig.kv_token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json() as Cookies & { updated_at?: string };
+        if (data.Secure_1PSID) {
+          if (debug) console.error(`Got cookies from KV (updated: ${data.updated_at || "unknown"})`);
+          // Cache locally
+          mkdirSync(CONFIG_DIR, { recursive: true });
+          writeFileSync(COOKIE_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+          return { Secure_1PSID: data.Secure_1PSID, Secure_1PSIDTS: data.Secure_1PSIDTS };
+        }
+      } else {
+        if (debug) console.error(`KV read failed: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      if (debug) console.error(`KV read error: ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    if (debug) console.error("KV not configured, using local cookies");
+  }
+
+  // Fallback to local file
   if (!existsSync(COOKIE_FILE)) {
     return null;
   }
   try {
     const data = readFileSync(COOKIE_FILE, "utf-8");
+    if (debug) console.error("Using cached local cookies");
     return JSON.parse(data);
   } catch {
     return null;
@@ -173,73 +209,6 @@ function parseCookies(setCookieHeaders: string[]): Record<string, string> {
   return cookies;
 }
 
-/**
- * Save cookies to disk with 0o600 permissions.
- * Only writes if the file doesn't exist or values changed.
- */
-function saveCookies(cookies: Cookies): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(COOKIE_FILE, JSON.stringify(cookies, null, 2), { mode: 0o600 });
-}
-
-/**
- * Rotate __Secure-1PSIDTS cookie via Google's RotateCookies endpoint.
- * Returns updated cookies if rotation succeeded, or original cookies if skipped/failed.
- * Uses mtime of cookie file as cache: won't rotate more than once per 60 seconds.
- */
-async function rotateCookies(cookies: Cookies, debug = false): Promise<Cookies> {
-  // Cache check: skip if cookie file was modified less than 60 seconds ago
-  if (existsSync(COOKIE_FILE)) {
-    const stat = statSync(COOKIE_FILE);
-    const ageSeconds = (Date.now() - stat.mtimeMs) / 1000;
-    if (ageSeconds <= 60) {
-      if (debug) console.error("Cookie rotation skipped (rotated <60s ago)");
-      return cookies;
-    }
-  }
-
-  // Build cookie header with __Secure- prefix (HTTP cookie names differ from file keys)
-  const cookieHeader: Record<string, string> = {
-    "__Secure-1PSID": cookies.Secure_1PSID,
-  };
-  if (cookies.Secure_1PSIDTS) {
-    cookieHeader["__Secure-1PSIDTS"] = cookies.Secure_1PSIDTS;
-  }
-
-  if (debug) console.error("Rotating cookies via RotateCookies endpoint...");
-
-  const res = await fetch(ROTATE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: formatCookies(cookieHeader),
-    },
-    body: '[000,"-0000000000000000000"]',
-  });
-
-  if (res.status === 401) {
-    if (debug) console.error("Cookie rotation failed: 401 (session expired)");
-    return cookies;
-  }
-
-  if (!res.ok) {
-    if (debug) console.error(`Cookie rotation failed: HTTP ${res.status}`);
-    return cookies;
-  }
-
-  const setCookies = parseCookies(res.headers.getSetCookie());
-  const newPSIDTS = setCookies["__Secure-1PSIDTS"];
-
-  if (newPSIDTS && newPSIDTS !== cookies.Secure_1PSIDTS) {
-    if (debug) console.error("Got fresh __Secure-1PSIDTS");
-    const updated = { ...cookies, Secure_1PSIDTS: newPSIDTS };
-    saveCookies(updated);
-    return updated;
-  }
-
-  if (debug) console.error("Cookie rotation: no new __Secure-1PSIDTS in response");
-  return cookies;
-}
 
 /**
  * Get access token (SNlM0e) from Gemini
@@ -333,18 +302,15 @@ interface GenerateOptions {
  */
 async function generateImage(opts: GenerateOptions): Promise<GenerateResult> {
   const { prompt, outputDir, filename, debug = false, cloudflare = false } = opts;
-  let cookies = loadCookies();
+  const cookies = await loadCookies(debug);
   if (!cookies) {
-    return { status: "error", error: "No cookies. Run setup first." };
+    return { status: "error", error: "No cookies. Run setup first or configure KV." };
   }
   if (!cookies.Secure_1PSID) {
     return { status: "error", error: "Invalid cookies. Missing Secure_1PSID." };
   }
 
   try {
-    // Rotate cookies to ensure __Secure-1PSIDTS is fresh
-    cookies = await rotateCookies(cookies, debug);
-
     // Get access token
     if (debug) console.error("Getting access token...");
     const { token, allCookies } = await getAccessToken(cookies);
@@ -527,25 +493,29 @@ async function generateImage(opts: GenerateOptions): Promise<GenerateResult> {
 function showSetup(): void {
   console.log(`nanobanana - Cookie Setup
 
-To use nanobanana, you need cookies from your Google AI Pro subscription.
+Cookies are managed centrally via Cloudflare KV. A cloud service
+refreshes them automatically every 6 hours.
 
-Option 1: Manual setup (recommended)
-  1. Go to https://gemini.google.com in Chrome (logged in with AI Pro)
-  2. Open DevTools (F12) > Application > Cookies > gemini.google.com
-  3. Copy the values of:
-     - __Secure-1PSID
-     - __Secure-1PSIDTS
-  4. Create ${COOKIE_FILE}:
-     {
-       "Secure_1PSID": "paste-value-here",
-       "Secure_1PSIDTS": "paste-value-here"
-     }
+To configure KV access, add to ${SECRETS_FILE}:
+  {
+    "cloudflare": {
+      "account_id": "your-account-id",
+      "images_token": "your-images-token",
+      "kv_token": "your-kv-api-token",
+      "kv_namespace_id": "your-namespace-id"
+    }
+  }
 
-Option 2: Use Python helper (if you have the venv)
-  cd tools/nanobanana
-  .venv/bin/python -c "import nanobanana; nanobanana.setup_cookies()"
+Manual cookie refresh:
+  swain-cookies refresh    Trigger cloud refresh now
+  swain-cookies status     Check last refresh time
 
-Cookies expire periodically - re-run setup if you get auth errors.
+Fallback (if KV not configured):
+  Create ${COOKIE_FILE} manually:
+  {
+    "Secure_1PSID": "paste-value-here",
+    "Secure_1PSIDTS": "paste-value-here"
+  }
 `);
 }
 
@@ -561,7 +531,6 @@ async function main() {
       json: { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
       setup: { type: "boolean", default: false },
-      rotate: { type: "boolean", default: false },
       cloudflare: { type: "boolean", short: "c", default: false },
       help: { type: "boolean", short: "h" },
     },
@@ -573,38 +542,12 @@ async function main() {
     process.exit(0);
   }
 
-  if (values.rotate) {
-    const debug = values.debug || false;
-    const cookies = loadCookies();
-    if (!cookies) {
-      const result = { status: "error", error: "No cookies. Run setup first." };
-      if (values.json) console.log(JSON.stringify(result));
-      else console.error(`Error: ${result.error}`);
-      process.exit(1);
-    }
-    try {
-      const rotated = await rotateCookies(cookies, debug);
-      const refreshed = rotated.Secure_1PSIDTS !== cookies.Secure_1PSIDTS;
-      const result = { status: "rotated", refreshed };
-      if (values.json) console.log(JSON.stringify(result));
-      else console.log(refreshed ? "Cookies rotated successfully" : "Cookies still fresh (no rotation needed)");
-      process.exit(0);
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      const result = { status: "error", error };
-      if (values.json) console.log(JSON.stringify(result));
-      else console.error(`Error: ${error}`);
-      process.exit(1);
-    }
-  }
-
   if (values.help || positionals.length === 0) {
     console.log(`nanobanana - Generate images using Gemini 3 Pro
 
 Usage:
   nanobanana "prompt"                    Generate image (save locally)
   nanobanana -c "prompt"                 Upload to Cloudflare Images
-  nanobanana --rotate                    Refresh cookies (no generation)
   nanobanana --setup                     Show cookie setup instructions
   nanobanana -o name "prompt"            Custom filename
   nanobanana -d /path "prompt"           Custom output directory
@@ -613,13 +556,18 @@ Usage:
 
 Options:
   -c, --cloudflare     Upload to Cloudflare Images (returns URL)
-  --rotate             Rotate cookies and exit (for scheduled tasks)
   --setup              Show cookie setup instructions
   -o, --output NAME    Custom filename (no extension)
   -d, --dir PATH       Output directory
   --json               Output JSON (for programmatic use)
   --debug              Show debug information
   -h, --help           Show this help
+
+Cookie Management:
+  Cookies are managed centrally via Cloudflare KV.
+  A cloud-based refresh service keeps them fresh automatically.
+  Run 'swain-cookies refresh' to trigger a manual refresh.
+  Run 'swain-cookies status' to check cookie health.
 
 Examples:
   nanobanana --setup
