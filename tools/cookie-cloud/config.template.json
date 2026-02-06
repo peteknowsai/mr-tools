@@ -1,0 +1,5 @@
+{
+  "cloudflare_account_id": "YOUR_ACCOUNT_ID",
+  "cloudflare_api_token": "YOUR_API_TOKEN_WITH_KV_WRITE",
+  "cloudflare_kv_namespace_id": "YOUR_KV_NAMESPACE_ID"
+}

@@ -31,3 +31,29 @@
 - Validate cookie values before saving (length check)
 - Replace hardcoded `waitForTimeout` with DOM element waits
 - Add log rotation for `~/.nanobanana/logs/refresh.log`
+
+## 2026-02-06 — Cloud cookie refresh (PR #2)
+
+### Architecture: Sprite + KV + Worker
+- Cookie rotation moved from Pete's laptop launchd to Fly.io Sprite VM
+- Cookies stored centrally in Cloudflare KV — all nanobanana instances read from there
+- Cloudflare Worker cron triggers Sprite every 6 hours
+- On-demand refresh via `swain-cookies refresh` CLI
+
+### Fly.io Sprites key learnings
+- `sprite create` + `sprite exec` for headless command execution
+- Sprites hibernate after 30s idle — internal cron won't fire, need external trigger
+- Persistent storage survives hibernation — browser profiles persist
+- Node.js 22.20 pre-installed, Playwright works after `apt install chromium` + `playwright install-deps`
+- `sprite proxy <port>` for port-forwarding (used for initial headed Google login)
+- `sprite exec` doesn't support shell syntax directly — use `bash -c "..."` or pass command as array
+
+### Cloudflare KV for cookie store
+- KV REST API: `GET/PUT .../storage/kv/namespaces/{id}/values/{key}`
+- Separate API token needed for KV access (images_token may not have KV perms)
+- Workers can bind KV directly in wrangler.jsonc — faster than REST API
+
+### Nanobanana changes
+- `loadCookies()` now async — reads from KV first, local cache as fallback
+- Removed `rotateCookies()`, `saveCookies()`, `--rotate` flag
+- KV config in secrets.json: `cloudflare.kv_token` + `cloudflare.kv_namespace_id`
