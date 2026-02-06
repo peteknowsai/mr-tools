@@ -12,7 +12,8 @@
     "commander": "^12.1.0",
     "googleapis": "^140.0.0",
     "openai": "^4.67.3",
-    "replicate": "^1.2.0"
+    "replicate": "^1.2.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
