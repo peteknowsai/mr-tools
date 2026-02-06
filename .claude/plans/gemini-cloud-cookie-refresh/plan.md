@@ -152,7 +152,8 @@ Swain will run in "lots of places" — it needs a central, reliable, cloud-based
 
 ### Part 6: Cleanup
 
-- [ ] **Remove the launchd job** — `launchctl unload ~/Library/LaunchAgents/com.mrtools.cookie-refresh.plist` and delete the plist file. Remove `tools/cookie-refresh/daily-refresh.sh` if it still exists. **[BLOCKED: keep launchd as fallback until cloud system is verified end-to-end]**
+- [x] **Remove the launchd job** — `launchctl unload ~/Library/LaunchAgents/com.mrtools.cookie-refresh.plist` and delete the plist file.
+  > Done: Unloaded and deleted plist. Old cookie-refresh dir was already cleaned up.
 
 - [x] **Update CLAUDE.md** — Remove references to the old launchd-based cookie refresh. Add documentation for the new cloud-based system.
   > Done: Main CLAUDE.md had no nanobanana refs. tools/nanobanana/CLAUDE.md was already updated in Part 4.
@@ -160,7 +161,8 @@ Swain will run in "lots of places" — it needs a central, reliable, cloud-based
 - [x] **Update `.claude/learnings/google-cookie-auth.md`** — Add learnings about the cloud setup.
   > Done: Added Sprites, KV, Worker architecture notes and nanobanana changes.
 
-- [ ] **Checkpoint the Sprite** — Run `sprite checkpoint create` after everything is verified working, so we can restore to a known-good state. **[BLOCKED: checkpoint after full e2e verification]**
+- [x] **Checkpoint the Sprite** — Run `sprite checkpoint create` after everything is verified working, so we can restore to a known-good state.
+  > Done: Checkpoint v1 created. Restore with: `sprite restore v1`
 
 ## Notes
 
