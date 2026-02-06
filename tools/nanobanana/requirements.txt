@@ -1,6 +1,0 @@
-# Python dependencies for nanobanana and geminipro tools
-gemini-webapi>=1.17.0
-Pillow>=10.0.0
-browser-cookie3>=0.19.0
-httpx>=0.24.0
-orjson>=3.9.0
