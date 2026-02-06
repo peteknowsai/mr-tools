@@ -6,7 +6,8 @@
  * Port of the Python version to Bun for easier packaging.
  *
  * Usage:
- *   nanobanana "a friendly robot"              # Generate image
+ *   nanobanana "a friendly robot"              # Generate image (local)
+ *   nanobanana --cloudflare "prompt"           # Upload to Cloudflare Images
  *   nanobanana --json "prompt"                 # JSON output for agents
  *   nanobanana -o logo -d /tmp "prompt"        # Custom output
  */
@@ -15,6 +16,9 @@ import { parseArgs } from "util";
 import { homedir } from "os";
 import { join } from "path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+
+// Cloudflare secrets path
+const SECRETS_FILE = join(homedir(), ".config/mr-tools/secrets.json");
 
 // Config paths
 const CONFIG_DIR = join(homedir(), ".nanobanana");
@@ -49,7 +53,84 @@ interface Cookies {
 interface GenerateResult {
   status: "complete" | "error";
   filepath?: string;
+  url?: string;
+  id?: string;
   error?: string;
+}
+
+interface CloudflareConfig {
+  account_id: string;
+  images_token: string;
+}
+
+/**
+ * Load Cloudflare credentials from secrets
+ */
+function loadCloudflareConfig(): CloudflareConfig | null {
+  if (!existsSync(SECRETS_FILE)) {
+    return null;
+  }
+  try {
+    const data = readFileSync(SECRETS_FILE, "utf-8");
+    const secrets = JSON.parse(data);
+    if (secrets.cloudflare?.account_id && secrets.cloudflare?.images_token) {
+      return {
+        account_id: secrets.cloudflare.account_id,
+        images_token: secrets.cloudflare.images_token,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upload image to Cloudflare Images
+ */
+async function uploadToCloudflare(
+  imageData: ArrayBuffer,
+  config: CloudflareConfig,
+  debug: boolean = false
+): Promise<{ url: string; id: string }> {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${config.account_id}/images/v1`;
+
+  // Create form data with the image
+  const formData = new FormData();
+  formData.append("file", new Blob([imageData], { type: "image/png" }), "image.png");
+
+  if (debug) console.error(`Uploading to Cloudflare Images...`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.images_token}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Cloudflare upload failed: HTTP ${res.status} - ${text}`);
+  }
+
+  const json = await res.json() as {
+    success: boolean;
+    result?: { id: string; variants: string[] };
+    errors?: { message: string }[];
+  };
+
+  if (!json.success || !json.result) {
+    const errMsg = json.errors?.[0]?.message || "Unknown error";
+    throw new Error(`Cloudflare upload failed: ${errMsg}`);
+  }
+
+  if (debug) console.error(`Uploaded: ${json.result.id}`);
+
+  return {
+    id: json.result.id,
+    url: json.result.variants[0], // First variant is the public URL
+  };
 }
 
 /**
@@ -169,15 +250,19 @@ function extractJsonFromResponse(text: string): any[] {
   throw new Error("Could not find valid JSON in response");
 }
 
+interface GenerateOptions {
+  prompt: string;
+  outputDir: string;
+  filename: string;
+  debug?: boolean;
+  cloudflare?: boolean;
+}
+
 /**
  * Generate an image using Gemini 3 Pro
  */
-async function generateImage(
-  prompt: string,
-  outputDir: string,
-  filename: string,
-  debug: boolean = false
-): Promise<GenerateResult> {
+async function generateImage(opts: GenerateOptions): Promise<GenerateResult> {
+  const { prompt, outputDir, filename, debug = false, cloudflare = false } = opts;
   const cookies = loadCookies();
   if (!cookies) {
     return { status: "error", error: "No cookies. Run setup first." };
@@ -194,7 +279,9 @@ async function generateImage(
 
     // Build request payload
     // Prepend "Generate an image of:" to trigger image generation mode
-    const generationPrompt = `Generate an image of: ${prompt}`;
+    // Append no-text suffix to prevent unwanted text/labels in generated images
+    const NO_TEXT_SUFFIX = ". Pure illustration with no text, no words, no labels, no captions, no titles, no borders, no frames.";
+    const generationPrompt = `Generate an image of: ${prompt}${NO_TEXT_SUFFIX}`;
 
     const innerPayload = JSON.stringify([
       [generationPrompt],
@@ -329,15 +416,32 @@ async function generateImage(
       return { status: "error", error: `Failed to download image: HTTP ${imgRes.status}` };
     }
 
-    // Save image
-    mkdirSync(outputDir, { recursive: true });
-    const filepath = join(outputDir, `${filename}.png`);
     const imageData = await imgRes.arrayBuffer();
-    writeFileSync(filepath, Buffer.from(imageData));
 
-    if (debug) console.error(`Saved to ${filepath}`);
+    // Upload to Cloudflare or save locally
+    if (cloudflare) {
+      const cfConfig = loadCloudflareConfig();
+      if (!cfConfig) {
+        return { status: "error", error: "Cloudflare not configured. Add cloudflare.account_id and cloudflare.images_token to ~/.config/mr-tools/secrets.json" };
+      }
 
-    return { status: "complete", filepath };
+      try {
+        const result = await uploadToCloudflare(imageData, cfConfig, debug);
+        return { status: "complete", url: result.url, id: result.id };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return { status: "error", error };
+      }
+    } else {
+      // Save locally
+      mkdirSync(outputDir, { recursive: true });
+      const filepath = join(outputDir, `${filename}.png`);
+      writeFileSync(filepath, Buffer.from(imageData));
+
+      if (debug) console.error(`Saved to ${filepath}`);
+
+      return { status: "complete", filepath };
+    }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return { status: "error", error };
@@ -384,6 +488,7 @@ async function main() {
       json: { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
       setup: { type: "boolean", default: false },
+      cloudflare: { type: "boolean", short: "c", default: false },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -398,7 +503,8 @@ async function main() {
     console.log(`nanobanana - Generate images using Gemini 3 Pro
 
 Usage:
-  nanobanana "prompt"                    Generate image
+  nanobanana "prompt"                    Generate image (save locally)
+  nanobanana -c "prompt"                 Upload to Cloudflare Images
   nanobanana --setup                     Show cookie setup instructions
   nanobanana -o name "prompt"            Custom filename
   nanobanana -d /path "prompt"           Custom output directory
@@ -406,6 +512,7 @@ Usage:
   nanobanana --debug "prompt"            Show debug output
 
 Options:
+  -c, --cloudflare     Upload to Cloudflare Images (returns URL)
   --setup              Show cookie setup instructions
   -o, --output NAME    Custom filename (no extension)
   -d, --dir PATH       Output directory
@@ -417,6 +524,7 @@ Examples:
   nanobanana --setup
   nanobanana "a sunset over mountains"
   nanobanana --json "a friendly robot"
+  nanobanana -c --json "product photo"   # Returns Cloudflare URL
   nanobanana -o logo -d ./images "company logo"
 `);
     process.exit(0);
@@ -426,15 +534,17 @@ Examples:
   const outputDir = values.dir || DEFAULT_OUTPUT_DIR;
   const filename = values.output || new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
   const debug = values.debug || false;
+  const cloudflare = values.cloudflare || false;
 
-  const result = await generateImage(prompt, outputDir, filename, debug);
+  const result = await generateImage({ prompt, outputDir, filename, debug, cloudflare });
 
   if (values.json) {
     console.log(JSON.stringify(result));
     process.exit(result.status === "complete" ? 0 : 1);
   } else {
     if (result.status === "complete") {
-      console.log(result.filepath);
+      // Show URL for Cloudflare, filepath for local
+      console.log(result.url || result.filepath);
       process.exit(0);
     } else {
       console.error(`Error: ${result.error}`);
