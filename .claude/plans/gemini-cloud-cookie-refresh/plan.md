@@ -94,14 +94,15 @@ Swain will run in "lots of places" — it needs a central, reliable, cloud-based
 - [x] **Deploy refresh script to Sprite** — Copy `tools/cookie-cloud/refresh.js` to the Sprite at `/opt/cookie-refresh/refresh.js`. Install dependencies (`playwright`). Create a `deploy-to-sprite.sh` script that rsync/scps the refresh script and installs deps.
   > Done: Created deploy-to-sprite.sh, deployed refresh.js to Sprite. Script runs and correctly errors on missing config.
 
-- [ ] **Test the refresh script inside the Sprite** — SSH in, run `node /opt/cookie-refresh/refresh.js --debug`. Verify it calls RotateCookies, gets fresh PSIDTS, writes to KV. **[BLOCKED: needs KV namespace + config + Google login first]**
+- [x] **Test the refresh script inside the Sprite** — SSH in, run `node /opt/cookie-refresh/refresh.js --debug`. Verify it calls RotateCookies, gets fresh PSIDTS, writes to KV.
+  > Done: Seeded with local cookies, rotation succeeded (method: rotate), cookies written to KV.
 
 ### Part 2: Initial Google Login on Sprite
 
-- [ ] **Set up Playwright persistent profile and do first-time Google login** — Use `sprite proxy` to forward a port from the Sprite. Run Chromium in headed mode (via X11/VNC forwarding or use Playwright's `connect` to forward the browser). Navigate to `gemini.google.com`, log in with Pete's Google AI Pro account. Verify the persistent profile at `/opt/cookie-refresh/playwright-profile/` has the session cookies. Document the exact steps in `tools/cookie-cloud/SETUP.md`. **[BLOCKED: requires Pete's interactive Google login — see SETUP.md Part 3]**
+- [ ] **Set up Playwright persistent profile and do first-time Google login** — Use `sprite proxy` to forward a port from the Sprite. Run Chromium in headed mode. Navigate to `gemini.google.com`, log in with Pete's Google AI Pro account. **[DEFERRED: not needed yet — seeded cookies from laptop work. Do this when session expires.]**
   > Setup docs written to tools/cookie-cloud/SETUP.md with step-by-step instructions.
 
-- [ ] **Test Playwright re-auth flow** — After login, run the refresh script with `--force-playwright` flag to verify the Playwright path works: extracts cookies from the persistent profile and writes to KV. **[BLOCKED: depends on Google login above]**
+- [ ] **Test Playwright re-auth flow** — After login, run the refresh script with `--force-playwright` flag. **[DEFERRED: depends on Google login above]**
 
 ### Part 3: Cloudflare Worker (Cron + On-Demand)
 
@@ -117,9 +118,11 @@ Swain will run in "lots of places" — it needs a central, reliable, cloud-based
     - `GET /status` endpoint: reads last refresh timestamp from KV and returns health status
   - Worker secrets: `SPRITES_TOKEN` (Fly.io API token), `REFRESH_SECRET` (shared secret for on-demand endpoint)
 
-- [ ] **Deploy the Worker** — `wrangler deploy`. Verify cron is registered with `wrangler triggers list`. **[BLOCKED: requires SPRITES_TOKEN and REFRESH_SECRET secrets to be set after deploy]**
+- [x] **Deploy the Worker** — `wrangler deploy`. Verify cron is registered with `wrangler triggers list`.
+  > Done: Deployed to https://cookie-refresh-trigger.peteknowsai.workers.dev, cron: 0 */6 * * *, secrets set.
 
-- [ ] **Test the cron trigger** — Manually trigger with `wrangler dev` or `curl -X POST https://cookie-refresh.<domain>/refresh -H "Authorization: Bearer <secret>"`. Verify the Sprite wakes, runs the refresh, and cookies appear in KV. **[BLOCKED: depends on Worker deploy + Google login]**
+- [x] **Test the cron trigger** — Manually trigger with curl. Verify the Sprite wakes, runs the refresh, and cookies appear in KV.
+  > Done: POST /refresh triggered successfully, Sprite woke, cookies confirmed in KV.
 
 ### Part 4: Update Swain (nanobanana) to Read from KV
 
@@ -136,14 +139,16 @@ Swain will run in "lots of places" — it needs a central, reliable, cloud-based
 - [x] **Update `tools/nanobanana/CLAUDE.md`** — Document the new KV-based cookie flow, remove references to local rotation and launchd.
   > Done: Rewrote auth section with KV architecture, updated troubleshooting table, removed --rotate refs.
 
-- [ ] **Test end-to-end** — Run `nanobanana --debug "test image"`. Verify it reads from KV, gets a valid token, generates an image successfully. **[BLOCKED: needs KV populated with valid cookies first]**
+- [x] **Test end-to-end** — Run `nanobanana --debug "test image"`. Verify it reads from KV, gets a valid token, generates an image successfully.
+  > Done: nanobanana reads from KV, generates image, saves to disk. Full pipeline verified.
 
 ### Part 5: CLI for On-Demand Refresh
 
 - [x] **Create `bin/swain-cookies` CLI wrapper** — Simple bash/bun script that calls the Worker's `/refresh` endpoint. Reads the shared secret from `~/.config/mr-tools/secrets.json`. Usage: `swain-cookies refresh` (trigger refresh), `swain-cookies status` (check last refresh time).
   > Done: Created tools/cookie-cloud/swain-cookies.ts + bin/swain-cookies wrapper. Help output verified.
 
-- [ ] **Test the CLI** — Run `swain-cookies refresh`, verify Sprite wakes and rotates. Run `swain-cookies status`, verify it shows the last refresh timestamp. **[BLOCKED: needs Worker deployed first]**
+- [x] **Test the CLI** — Run `swain-cookies refresh`, verify Sprite wakes and rotates. Run `swain-cookies status`, verify it shows the last refresh timestamp.
+  > Done: Both `refresh` and `status` commands work. Status shows cookie health and last trigger time.
 
 ### Part 6: Cleanup
 
