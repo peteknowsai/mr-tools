@@ -1,3 +1,5 @@
+**Status: Complete — merged via PR #1 (squash-merged to main)**
+
 # Nanobanana Cookie Auto-Refresh
 
 ## Context
