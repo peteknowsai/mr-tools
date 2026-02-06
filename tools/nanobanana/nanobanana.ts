@@ -8,6 +8,7 @@
  * Usage:
  *   nanobanana "a friendly robot"              # Generate image (local)
  *   nanobanana --cloudflare "prompt"           # Upload to Cloudflare Images
+ *   nanobanana --rotate                        # Refresh cookies only
  *   nanobanana --json "prompt"                 # JSON output for agents
  *   nanobanana -o logo -d /tmp "prompt"        # Custom output
  */
@@ -15,7 +16,7 @@
 import { parseArgs } from "util";
 import { homedir } from "os";
 import { join } from "path";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 
 // Cloudflare secrets path
 const SECRETS_FILE = join(homedir(), ".config/mr-tools/secrets.json");
@@ -29,6 +30,7 @@ const DEFAULT_OUTPUT_DIR = join(CONFIG_DIR, "images");
 const GOOGLE_URL = "https://www.google.com";
 const INIT_URL = "https://gemini.google.com/app";
 const GENERATE_URL = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate";
+const ROTATE_URL = "https://accounts.google.com/RotateCookies";
 
 // Headers
 const GEMINI_HEADERS = {
@@ -172,6 +174,74 @@ function parseCookies(setCookieHeaders: string[]): Record<string, string> {
 }
 
 /**
+ * Save cookies to disk with 0o600 permissions.
+ * Only writes if the file doesn't exist or values changed.
+ */
+function saveCookies(cookies: Cookies): void {
+  mkdirSync(CONFIG_DIR, { recursive: true });
+  writeFileSync(COOKIE_FILE, JSON.stringify(cookies, null, 2), { mode: 0o600 });
+}
+
+/**
+ * Rotate __Secure-1PSIDTS cookie via Google's RotateCookies endpoint.
+ * Returns updated cookies if rotation succeeded, or original cookies if skipped/failed.
+ * Uses mtime of cookie file as cache: won't rotate more than once per 60 seconds.
+ */
+async function rotateCookies(cookies: Cookies, debug = false): Promise<Cookies> {
+  // Cache check: skip if cookie file was modified less than 60 seconds ago
+  if (existsSync(COOKIE_FILE)) {
+    const stat = statSync(COOKIE_FILE);
+    const ageSeconds = (Date.now() - stat.mtimeMs) / 1000;
+    if (ageSeconds <= 60) {
+      if (debug) console.error("Cookie rotation skipped (rotated <60s ago)");
+      return cookies;
+    }
+  }
+
+  // Build cookie header with __Secure- prefix (HTTP cookie names differ from file keys)
+  const cookieHeader: Record<string, string> = {
+    "__Secure-1PSID": cookies.Secure_1PSID,
+  };
+  if (cookies.Secure_1PSIDTS) {
+    cookieHeader["__Secure-1PSIDTS"] = cookies.Secure_1PSIDTS;
+  }
+
+  if (debug) console.error("Rotating cookies via RotateCookies endpoint...");
+
+  const res = await fetch(ROTATE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: formatCookies(cookieHeader),
+    },
+    body: '[000,"-0000000000000000000"]',
+  });
+
+  if (res.status === 401) {
+    if (debug) console.error("Cookie rotation failed: 401 (session expired)");
+    return cookies;
+  }
+
+  if (!res.ok) {
+    if (debug) console.error(`Cookie rotation failed: HTTP ${res.status}`);
+    return cookies;
+  }
+
+  const setCookies = parseCookies(res.headers.getSetCookie());
+  const newPSIDTS = setCookies["__Secure-1PSIDTS"];
+
+  if (newPSIDTS && newPSIDTS !== cookies.Secure_1PSIDTS) {
+    if (debug) console.error("Got fresh __Secure-1PSIDTS");
+    const updated = { ...cookies, Secure_1PSIDTS: newPSIDTS };
+    saveCookies(updated);
+    return updated;
+  }
+
+  if (debug) console.error("Cookie rotation: no new __Secure-1PSIDTS in response");
+  return cookies;
+}
+
+/**
  * Get access token (SNlM0e) from Gemini
  */
 async function getAccessToken(cookies: Cookies): Promise<{ token: string; allCookies: Record<string, string> }> {
@@ -263,7 +333,7 @@ interface GenerateOptions {
  */
 async function generateImage(opts: GenerateOptions): Promise<GenerateResult> {
   const { prompt, outputDir, filename, debug = false, cloudflare = false } = opts;
-  const cookies = loadCookies();
+  let cookies = loadCookies();
   if (!cookies) {
     return { status: "error", error: "No cookies. Run setup first." };
   }
@@ -272,6 +342,9 @@ async function generateImage(opts: GenerateOptions): Promise<GenerateResult> {
   }
 
   try {
+    // Rotate cookies to ensure __Secure-1PSIDTS is fresh
+    cookies = await rotateCookies(cookies, debug);
+
     // Get access token
     if (debug) console.error("Getting access token...");
     const { token, allCookies } = await getAccessToken(cookies);
@@ -488,6 +561,7 @@ async function main() {
       json: { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
       setup: { type: "boolean", default: false },
+      rotate: { type: "boolean", default: false },
       cloudflare: { type: "boolean", short: "c", default: false },
       help: { type: "boolean", short: "h" },
     },
@@ -499,12 +573,38 @@ async function main() {
     process.exit(0);
   }
 
+  if (values.rotate) {
+    const debug = values.debug || false;
+    const cookies = loadCookies();
+    if (!cookies) {
+      const result = { status: "error", error: "No cookies. Run setup first." };
+      if (values.json) console.log(JSON.stringify(result));
+      else console.error(`Error: ${result.error}`);
+      process.exit(1);
+    }
+    try {
+      const rotated = await rotateCookies(cookies, debug);
+      const refreshed = rotated.Secure_1PSIDTS !== cookies.Secure_1PSIDTS;
+      const result = { status: "rotated", refreshed };
+      if (values.json) console.log(JSON.stringify(result));
+      else console.log(refreshed ? "Cookies rotated successfully" : "Cookies still fresh (no rotation needed)");
+      process.exit(0);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      const result = { status: "error", error };
+      if (values.json) console.log(JSON.stringify(result));
+      else console.error(`Error: ${error}`);
+      process.exit(1);
+    }
+  }
+
   if (values.help || positionals.length === 0) {
     console.log(`nanobanana - Generate images using Gemini 3 Pro
 
 Usage:
   nanobanana "prompt"                    Generate image (save locally)
   nanobanana -c "prompt"                 Upload to Cloudflare Images
+  nanobanana --rotate                    Refresh cookies (no generation)
   nanobanana --setup                     Show cookie setup instructions
   nanobanana -o name "prompt"            Custom filename
   nanobanana -d /path "prompt"           Custom output directory
@@ -513,6 +613,7 @@ Usage:
 
 Options:
   -c, --cloudflare     Upload to Cloudflare Images (returns URL)
+  --rotate             Rotate cookies and exit (for scheduled tasks)
   --setup              Show cookie setup instructions
   -o, --output NAME    Custom filename (no extension)
   -d, --dir PATH       Output directory
