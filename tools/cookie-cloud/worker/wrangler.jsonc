@@ -1,0 +1,14 @@
+{
+  "name": "cookie-refresh-trigger",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-06",
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "GEMINI_COOKIES",
+      "id": "f989ff10f7ae405b9fb68c3adaa4b7fa"
+    }
+  ]
+}
