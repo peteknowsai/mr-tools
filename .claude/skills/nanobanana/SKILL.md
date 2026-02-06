@@ -81,9 +81,11 @@ fi
 
 | Error | Solution |
 |-------|----------|
-| "No cookies" | Cookies expired. User needs to run `nanobanana --setup` |
-| "Could not find access token" | Re-extract cookies from Chrome |
+| "No cookies" | Run `cookie-refresh --setup` to extract cookies via browser login |
+| "Could not find access token" | Cookies expired. Run `nanobanana --rotate --debug` to refresh. If 401, run `cookie-refresh --setup` |
 | "Cloudflare upload failed" | Check API token in `~/.config/mr-tools/secrets.json` |
+
+**Note:** Cookie rotation is automatic — nanobanana rotates `__Secure-1PSIDTS` before each generation. A launchd task also runs daily at 3am. Full session re-auth (`cookie-refresh --setup`) is only needed when the primary `__Secure-1PSID` expires (rare, every few months).
 
 ## Tips for Better Results
 

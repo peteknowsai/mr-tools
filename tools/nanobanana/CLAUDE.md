@@ -43,13 +43,14 @@ nanobanana --debug "prompt"                       # Show request/response detail
 | Flag | Description |
 |------|-------------|
 | `-c, --cloudflare` | Upload to Cloudflare Images instead of local save |
+| `--rotate` | Rotate cookies and exit (for scheduled tasks) |
 | `-o, --output NAME` | Custom filename (no extension) |
 | `-d, --dir PATH` | Custom output directory (local only) |
 | `--json` | JSON output for programmatic use |
 | `--debug` | Show debug information |
 | `--setup` | Show cookie setup instructions |
 
-## Authentication
+## Authentication & Cookie Management
 
 **Gemini cookies** (required): `~/.nanobanana/cookies.json`
 ```json
@@ -59,7 +60,9 @@ nanobanana --debug "prompt"                       # Show request/response detail
 }
 ```
 
-Get these from Chrome DevTools > Application > Cookies > gemini.google.com while logged into Google AI Pro.
+**Cookie auto-refresh**: Cookies are rotated automatically before each image generation via Google's RotateCookies endpoint. A launchd task also runs daily at 3am. Manual rotation: `nanobanana --rotate`.
+
+**If auto-refresh fails** (session fully expired): Run `cookie-refresh --setup` to log in via browser and extract fresh cookies.
 
 **Cloudflare credentials** (for `-c` flag): `~/.config/mr-tools/secrets.json`
 ```json
@@ -91,7 +94,8 @@ filepath=$(nanobanana --json "logo design" | jq -r '.filepath')
 
 | Issue | Solution |
 |-------|----------|
-| "No cookies" | Run `nanobanana --setup` |
-| "Could not find access token" | Re-extract cookies from Chrome |
+| "No cookies" | Run `cookie-refresh --setup` (or manual: `nanobanana --setup`) |
+| "Could not find access token" | Run `nanobanana --rotate --debug` to refresh. If 401, run `cookie-refresh --setup` |
 | "Cloudflare not configured" | Add credentials to secrets.json |
 | "Cloudflare upload failed: 401" | Regenerate API token with Images permission |
+| Cookie rotation returns 401 | Session expired. Run `cookie-refresh --setup` to re-auth |
